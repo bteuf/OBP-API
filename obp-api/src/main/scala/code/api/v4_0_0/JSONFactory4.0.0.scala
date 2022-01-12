@@ -26,35 +26,45 @@
   */
 package code.api.v4_0_0
 
+import java.text.SimpleDateFormat
 import java.util.Date
 
+import code.api.Constant
 import code.api.attributedefinition.AttributeDefinition
 import code.api.util.APIUtil
-import code.api.util.APIUtil.{stringOptionOrNull, stringOrNull}
+import code.api.util.APIUtil.{DateWithDay, DateWithSeconds, stringOptionOrNull, stringOrNull}
 import code.api.v1_2_1.JSONFactory.{createAmountOfMoneyJSON, createOwnersJSON}
 import code.api.v1_2_1.{BankRoutingJsonV121, JSONFactory, UserJSONV121, ViewJSONV121}
-import code.api.v1_4_0.JSONFactory1_4_0.TransactionRequestAccountJsonV140
-import code.api.v2_0_0.TransactionRequestChargeJsonV200
+import code.api.v1_4_0.JSONFactory1_4_0.{LocationJsonV140, MetaJsonV140, TransactionRequestAccountJsonV140, transformToLocationFromV140, transformToMetaFromV140}
+import code.api.v2_0_0.JSONFactory200.UserJsonV200
+import code.api.v2_0_0.{CreateEntitlementJSON, EntitlementJSONs, JSONFactory200, TransactionRequestChargeJsonV200}
 import code.api.v2_1_0.{IbanJson, JSONFactory210, PostCounterpartyBespokeJson, ResourceUserJSON}
 import code.api.v2_2_0.CounterpartyMetadataJson
-import code.api.v3_0_0.JSONFactory300.{createAccountRoutingsJSON, createAccountRulesJSON}
-import code.api.v3_0_0.{AccountRuleJsonV300, CustomerAttributeResponseJsonV300}
-import code.api.v3_1_0.JSONFactory310.createAccountAttributeJson
-import code.api.v3_1_0.{AccountAttributeResponseJson, RedisCallLimitJson}
+import code.api.v3_0_0.JSONFactory300._
+import code.api.v3_0_0._
+import code.api.v3_1_0.JSONFactory310.{createAccountAttributeJson, createProductAttributesJson}
+import code.api.v3_1_0.{AccountAttributeResponseJson, PostHistoricalTransactionResponseJson, ProductAttributeResponseWithoutBankIdJson, RedisCallLimitJson}
 import code.apicollection.ApiCollectionTrait
 import code.apicollectionendpoint.ApiCollectionEndpointTrait
+import code.atms.Atms.Atm
+import code.bankattribute.BankAttribute
 import code.consent.MappedConsent
 import code.entitlement.Entitlement
+import code.model.dataAccess.ResourceUser
 import code.model.{Consumer, ModeratedBankAccount, ModeratedBankAccountCore}
 import code.ratelimiting.RateLimiting
 import code.standingorders.StandingOrderTrait
 import code.transactionrequests.TransactionRequests.TransactionChallengeTypes
 import code.userlocks.UserLocks
-import com.openbankproject.commons.model.{DirectDebitTrait, _}
+import code.users.{UserAgreement, UserInvitation}
+import com.openbankproject.commons.model.{DirectDebitTrait, ProductFeeTrait, _}
 import net.liftweb.common.{Box, Full}
 import net.liftweb.json.JValue
+import net.liftweb.mapper.By
 
 import scala.collection.immutable.List
+import scala.math.BigDecimal
+import scala.util.Try
 
 
 case class CallLimitPostJsonV400(
@@ -92,7 +102,8 @@ case class BankJson400(
                         full_name: String,
                         logo: String,
                         website: String,
-                        bank_routings: List[BankRoutingJsonV121]
+                        bank_routings: List[BankRoutingJsonV121],
+                        attributes: Option[List[BankAttributeBankResponseJsonV400]]
                       )
 
 case class BanksJson400(banks: List[BankJson400])
@@ -118,17 +129,63 @@ case class TransactionRequestWithChargeJSON400(
                                                 challenges: List[ChallengeJsonV400],
                                                 charge : TransactionRequestChargeJsonV200
                                               )
+case class PostHistoricalTransactionAtBankJson(
+                                                from_account_id: String,
+                                                to_account_id: String,
+                                                value: AmountOfMoneyJsonV121,
+                                                description: String,
+                                                posted: String,
+                                                completed: String,
+                                                `type`: String,
+                                                charge_policy: String
+                                              )
+case class HistoricalTransactionAccountJsonV400(
+                                                 bank_id: String,
+                                                 account_id : String
+                                               )
+case class PostHistoricalTransactionResponseJsonV400(
+                                                  transaction_id: String,
+                                                  from: HistoricalTransactionAccountJsonV400,
+                                                  to: HistoricalTransactionAccountJsonV400,
+                                                  value: AmountOfMoneyJsonV121,
+                                                  description: String,
+                                                  posted: Date,
+                                                  completed: Date,
+                                                  transaction_request_type: String,
+                                                  charge_policy: String
+                                                )
 case class PostResetPasswordUrlJsonV400(username: String, email: String, user_id: String)
 case class ResetPasswordUrlJsonV400(reset_password_url: String)
+
+case class PostUserInvitationAnonymousJsonV400(secret_key: Long)
+case class PostUserInvitationJsonV400(first_name: String, 
+                                      last_name: String, 
+                                      email: String, 
+                                      company: String, 
+                                      country: String,
+                                      purpose: String)
+case class UserInvitationJsonV400(first_name: String,
+                                  last_name: String,
+                                  email: String,
+                                  company: String,
+                                  country: String,
+                                  purpose: String,
+                                  status: String)
+case class UserInvitationsJsonV400(user_invitations: List[UserInvitationJsonV400])
+
+case class UserIdJsonV400(user_id: String)
 
 case class APIInfoJson400(
                         version : String,
                         version_status: String,
                         git_commit : String,
                         connector : String,
+                        hostname : String,
+                        local_identity_provider : String,
                         hosted_by : HostedBy400,
                         hosted_at : HostedAt400,
-                        energy_source : EnergySource400
+                        energy_source : EnergySource400,
+                        resource_docs_requires_role: Boolean
                       )
 case class HostedBy400(
                      organisation : String,
@@ -172,6 +229,22 @@ case class ModeratedFirehoseAccountJsonV400(
 case class ModeratedFirehoseAccountsJsonV400(
                                               accounts: List[ModeratedFirehoseAccountJsonV400]
                                             )
+
+case class FastFirehoseAccountJsonV400(
+  id: String,
+  bank_id: String,
+  label: String,
+  number: String,
+  owners: String,
+  product_code: String,
+  balance: AmountOfMoneyJsonV121,
+  account_routings: String ,
+  account_attributes: String
+)
+
+case class FastFirehoseAccountsJsonV400(
+  accounts: List[FastFirehoseAccountJsonV400]
+)
 
 case class ModeratedAccountJSON400(
                                     id : String,
@@ -230,6 +303,15 @@ case class AccountBalanceJsonV400(
                                    balances: List[BalanceJsonV400]
                                  )
 
+case class AccountBalancesJsonV400(
+  account_id: String,
+  bank_id: String,
+  account_routings: List[AccountRouting],
+  label: String,
+  balances: List[BalanceJsonV400],
+  
+)
+
 case class PostCustomerPhoneNumberJsonV400(mobile_phone_number: String)
 case class PostDirectDebitJsonV400(customer_id: String,
                                    user_id: String,
@@ -276,11 +358,22 @@ case class StandingOrderJsonV400(standing_order_id: String,
                                  active: Boolean)
 case class PostViewJsonV400(view_id: String, is_system: Boolean)
 case class PostAccountAccessJsonV400(user_id: String, view: PostViewJsonV400)
+case class PostCreateUserAccountAccessJsonV400(username: String, provider:String, views: List[PostViewJsonV400])
+case class PostCreateUserWithRolesJsonV400(username: String, provider:String, roles: List[CreateEntitlementJSON])
 case class PostRevokeGrantAccountAccessJsonV400(views: List[String])
 case class RevokedJsonV400(revoked: Boolean)
 
 case class ConsentJsonV400(consent_id: String, jwt: String, status: String, api_standard: String, api_version: String)
 case class ConsentsJsonV400(consents: List[ConsentJsonV400])
+case class ConsentInfoJsonV400(consent_id: String, 
+                               consumer_id: String,
+                               created_by_user_id: String, 
+                               last_action_date: String, 
+                               last_usage_date: String, 
+                               status: String, 
+                               api_standard: String, 
+                               api_version: String)
+case class ConsentInfosJsonV400(consents: List[ConsentInfoJsonV400])
 
 case class TransactionRequestBodySEPAJsonV400(
                                                value: AmountOfMoneyJsonV121,
@@ -501,7 +594,54 @@ case class PostCounterpartyJson400(
                                     is_beneficiary: Boolean,
                                     bespoke: List[PostCounterpartyBespokeJson]
                                   )
+case class DynamicEndpointHostJson400(
+  host: String
+)
 
+case class EndpointTagJson400(
+  tag_name: String,
+)
+
+case class SystemLevelEndpointTagResponseJson400(
+  endpoint_tag_id: String,
+  operation_id: String,
+  tag_name: String
+)
+
+case class BankLevelEndpointTagResponseJson400(
+  bank_id: String,
+  endpoint_tag_id: String,
+  operation_id: String,
+  tag_name: String
+)
+
+case class MySpaces(
+  bank_ids: List[String],
+)
+
+case class ProductJsonV400(
+  bank_id: String,
+  product_code: String,
+  parent_product_code: String,
+  name: String,
+  more_info_url: String,
+  terms_and_conditions_url: String,
+  description: String,
+  meta: MetaJsonV140,
+  attributes: Option[List[ProductAttributeResponseWithoutBankIdJson]],
+  fees: Option[List[ProductFeeJsonV400]]
+)
+
+case class ProductsJsonV400(products: List[ProductJsonV400])
+
+case class PutProductJsonV400(
+  parent_product_code: String,
+  name: String,
+  more_info_url: String,
+  terms_and_conditions_url: String,
+  description: String,
+  meta: MetaJsonV140,
+)
 case class CounterpartyJson400(
                                  name: String,
                                  description: String,
@@ -545,7 +685,8 @@ case class ApiCollectionJson400 (
   api_collection_id: String,
   user_id: String,
   api_collection_name: String,
-  is_sharable: Boolean
+  is_sharable: Boolean,
+  description: String
 )
 case class ApiCollectionsJson400 (
   api_collections: List[ApiCollectionJson400] 
@@ -553,7 +694,8 @@ case class ApiCollectionsJson400 (
 
 case class PostApiCollectionJson400(
   api_collection_name: String,
-  is_sharable: Boolean
+  is_sharable: Boolean,
+  description: Option[String]
 )
 
 case class ApiCollectionEndpointJson400 (
@@ -589,6 +731,77 @@ case class JsonSchemaV400(
 case class JsonValidationV400(operation_id: String, json_schema: JsonSchemaV400)
 // Validation related END
 
+case class ProductAttributeJsonV400(
+                                     name: String,
+                                     `type`: String,
+                                     value: String,
+                                     is_active: Option[Boolean]
+                                   )
+case class ProductAttributeResponseJsonV400(
+                                         bank_id: String,
+                                         product_code: String,
+                                         product_attribute_id: String,
+                                         name: String,
+                                         `type`: String,
+                                         value: String,
+                                         is_active: Option[Boolean]
+                                       )
+case class ProductAttributeResponseWithoutBankIdJsonV400(
+                                                      product_code: String,
+                                                      product_attribute_id: String,
+                                                      name: String,
+                                                      `type`: String,
+                                                      value: String,
+                                                      is_active: Option[Boolean]
+                                                    )
+
+case class BankAttributeJsonV400(
+                                  name: String,
+                                  `type`: String,
+                                  value: String,
+                                  is_active: Option[Boolean])
+
+case class BankAttributeResponseJsonV400(
+                                          bank_id: String,
+                                          bank_attribute_id: String,
+                                          name: String,
+                                          `type`: String,
+                                          value: String,
+                                          is_active: Option[Boolean]
+                                        )
+case class BankAttributesResponseJsonV400(bank_attributes: List[BankAttributeResponseJsonV400])
+case class BankAttributeBankResponseJsonV400(name: String,
+                                             value: String)
+case class BankAttributesResponseJson(list: List[BankAttributeBankResponseJsonV400])
+
+case class ProductFeeValueJsonV400(
+  currency: String,
+  amount: BigDecimal,
+  frequency: String,
+  `type`: String,
+)
+
+case class ProductFeeJsonV400(
+  product_fee_id:Option[String],
+  name: String,
+  is_active: Boolean,
+  more_info: String,
+  value:ProductFeeValueJsonV400,
+)
+
+case class ProductFeeResponseJsonV400(
+  bank_id: String,
+  product_code: String,
+  product_fee_id: String,
+  name: String,
+  is_active: Boolean,
+  more_info: String,
+  value:ProductFeeValueJsonV400,
+)
+
+case class ProductFeesResponseJsonV400(
+  product_fees: List[ProductFeeResponseJsonV400]
+)
 
 case class IbanCheckerJsonV400(
                                 is_valid: Boolean,
@@ -632,7 +845,143 @@ case class ResourceDocFragment(
                                 successResponseBody: Option[JValue]
                            ) extends JsonFieldReName
 
+case class SupportedCurrenciesJson(
+  supported_currencies: List[String]
+)
+
+case class AtmSupportedCurrenciesJson(
+  atm_id: String,
+  supported_currencies: List[String]
+)
+
+case class SupportedLanguagesJson(
+  supported_languages: List[String]
+)
+
+case class AtmSupportedLanguagesJson(
+  atm_id: String,
+  supported_languages: List[String]
+)
+
+case class AccessibilityFeaturesJson(
+  accessibility_features: List[String]
+)
+
+case class AtmAccessibilityFeaturesJson(
+  atm_id: String,
+  accessibility_features: List[String]
+)
+
+case class AtmServicesJsonV400(
+  services: List[String]
+)
+
+case class AtmServicesResponseJsonV400(
+  atm_id: String,
+  services: List[String]
+)
+
+case class AtmNotesJsonV400(
+  notes: List[String]
+)
+
+case class AtmNotesResponseJsonV400(
+  atm_id: String,
+  notes: List[String]
+)
+
+case class AtmLocationCategoriesJsonV400(
+  location_categories: List[String]
+)
+
+case class AtmLocationCategoriesResponseJsonV400(
+  atm_id: String,
+  location_categories: List[String]
+)
+
+case class AtmJsonV400 (
+  id : Option[String],
+  bank_id : String,
+  name : String,
+  address: AddressJsonV300,
+  location: LocationJsonV140,
+  meta: MetaJsonV140,
+
+  monday: OpeningTimesV300,
+  tuesday: OpeningTimesV300,
+  wednesday: OpeningTimesV300,
+  thursday: OpeningTimesV300,
+  friday: OpeningTimesV300,
+  saturday: OpeningTimesV300,
+  sunday: OpeningTimesV300,
+
+  is_accessible : String,
+  located_at : String,
+  more_info : String,
+  has_deposit_capability : String,
+  
+  supported_languages: List[String],
+  services: List[String],
+  accessibility_features: List[String],
+  supported_currencies: List[String],
+  notes: List[String],
+  location_categories: List[String],
+  minimum_withdrawal: String,
+  branch_identification: String,
+  site_identification: String,
+  site_name: String,
+  cash_withdrawal_national_fee: String,
+  cash_withdrawal_international_fee: String,
+  balance_inquiry_fee: String
+)
+
+case class AtmsJsonV400(atms : List[AtmJsonV400])
+
+case class UserAgreementJson(`type`: String, text: String)
+case class UserJsonV400(
+                         user_id: String,
+                         email : String,
+                         provider_id: String,
+                         provider : String,
+                         username : String,
+                         entitlements : EntitlementJSONs,
+                         views: Option[ViewsJSON300],
+                         agreements: Option[List[UserAgreementJson]],
+                         is_deleted: Boolean,
+                         last_marketing_agreement_signed_date: Option[Date]
+                       )
+case class UsersJsonV400(users: List[UserJsonV400])
+
 object JSONFactory400 {
+
+  def createUserInfoJSON(user : User, entitlements: List[Entitlement], agreements: Option[List[UserAgreement]]) : UserJsonV400 = {
+    UserJsonV400(
+      user_id = user.userId,
+      email = user.emailAddress,
+      username = stringOrNull(user.name),
+      provider_id = user.idGivenByProvider,
+      provider = stringOrNull(user.provider),
+      entitlements = JSONFactory200.createEntitlementJSONs(entitlements),
+      views = None,
+      agreements = agreements.map(_.map( i => 
+        UserAgreementJson(`type` = i.agreementType, text = i.agreementText))
+      ),
+      is_deleted = user.isDeleted.getOrElse(false),
+      last_marketing_agreement_signed_date = user.lastMarketingAgreementSignedDate
+    )
+  }
+
+  def createUsersJson(users : List[(ResourceUser, Box[List[Entitlement]], Option[List[UserAgreement]])]) : UsersJsonV400 = {
+    UsersJsonV400(
+      users.map(t => 
+        createUserInfoJSON(
+          t._1, 
+          t._2.getOrElse(Nil),
+          t._3
+        )
+      )
+    )
+  }
 
   def createCallsLimitJson(rateLimiting: RateLimiting) : CallLimitJsonV400 = {
     CallLimitJsonV400(
@@ -652,7 +1001,7 @@ object JSONFactory400 {
 
   }
   
-  def createBankJSON400(bank: Bank): BankJson400 = {
+  def createBankJSON400(bank: Bank, attributes: List[BankAttribute] = Nil): BankJson400 = {
     val obp = BankRoutingJsonV121("OBP", bank.bankId.value)
     val bic = BankRoutingJsonV121("BIC", bank.swiftBic)
     val routings = bank.bankRoutingScheme match {
@@ -666,12 +1015,22 @@ object JSONFactory400 {
       stringOrNull(bank.fullName),
       stringOrNull(bank.logoUrl),
       stringOrNull(bank.websiteUrl),
-      routings.filter(a => stringOrNull(a.address) != null)
+      routings.filter(a => stringOrNull(a.address) != null),
+      Option(
+        attributes.filter(_.isActive == Some(true)).map(a => BankAttributeBankResponseJsonV400(
+          name = a.name, 
+          value = a.value)
+        )
+      )
     )
   }
 
   def createBanksJson(l: List[Bank]): BanksJson400 = {
-    BanksJson400(l.map(createBankJSON400))
+    BanksJson400(l.map(i => createBankJSON400(i, Nil)))
+  }
+
+  def createUserIdInfoJson(user : User) : UserIdJsonV400 = {
+    UserIdJsonV400(user_id = user.userId)
   }
 
   def createSettlementAccountJson(userId: String, account: BankAccount, accountAttributes: List[AccountAttribute]): SettlementAccountResponseJson =
@@ -719,7 +1078,7 @@ object JSONFactory400 {
       // Some (mapped) data might not have the challenge. TODO Make this nicer
       challenges = {
         try {
-          val otpViaWebFormPath = APIUtil.getPropsValue("hostname", "") + List(
+          val otpViaWebFormPath = Constant.HostName + List(
             "/otp?flow=transaction_request&bankId=",
             stringOrNull(tr.from.bank_id),
             "&accountId=",
@@ -733,7 +1092,7 @@ object JSONFactory400 {
             stringOrNull(tr.challenge.id)
           ).mkString("")
           
-          val otpViaApiPath = APIUtil.getPropsValue("hostname", "") + List(
+          val otpViaApiPath = Constant.HostName + List(
             "/obp/v4.0.0/banks/",
             stringOrNull(tr.from.bank_id),
             "/accounts/",
@@ -834,6 +1193,24 @@ object JSONFactory400 {
             createAccountRoutingsJSON(account.accountRoutings),
             createAccountRulesJSON(account.accountRules),
             account_attributes = getAttributes(account.bankId, account.accountId)
+          )
+      )
+    )
+  }
+  def createFirehoseBankAccountJSON(firehoseAccounts : List[FastFirehoseAccount]) : FastFirehoseAccountsJsonV400 =  {
+    FastFirehoseAccountsJsonV400(
+      firehoseAccounts.map(
+        account =>
+          FastFirehoseAccountJsonV400(
+            account.id,
+            account.bankId,
+            account.label,
+            account.number,
+            account.owners,
+            account.productCode,
+            AmountOfMoneyJsonV121(account.balance.currency, account.balance.amount),
+            account.accountRoutings,
+            account.accountAttributes
           )
       )
     )
@@ -1046,6 +1423,22 @@ object JSONFactory400 {
   def createCounterpartiesJson400(counterparties: List[CounterpartyTrait]): CounterpartiesJson400 =
     CounterpartiesJson400(counterparties.map(createCounterpartyJson400))
 
+  def createUserInvitationJson(userInvitation: UserInvitation): UserInvitationJsonV400 = {
+    UserInvitationJsonV400(
+      first_name = userInvitation.firstName,
+      last_name = userInvitation.lastName,
+      email = userInvitation.email,
+      company = userInvitation.company,
+      country = userInvitation.country,
+      purpose = userInvitation.purpose,
+      status = userInvitation.status
+    )
+  }
+
+  def createUserInvitationJson(userInvitations: List[UserInvitation]): UserInvitationsJsonV400 = {
+    UserInvitationsJsonV400(userInvitations.map(createUserInvitationJson))
+  }
+  
   def createBalancesJson(accountsBalances: AccountsBalances) = {
     AccountsBalancesJsonV400(
       accounts = accountsBalances.accounts.map(
@@ -1055,15 +1448,40 @@ object JSONFactory400 {
           account_routings = account.accountRoutings,
           label = account.label,
           balances = List(
-            BalanceJsonV400(`type` = "", currency = account.balance.currency, amount = account.balance.amount)
+            BalanceJsonV400(`type` = "OpeningBooked", currency = account.balance.currency, amount = account.balance.amount)
           )
         )
       )
     )
   }
+  
+  def createAccountBalancesJson(accountBalances: AccountBalances) = {
+     AccountBalanceJsonV400(
+       account_id = accountBalances.id, 
+       bank_id = accountBalances.bankId, 
+       account_routings = accountBalances.accountRoutings, 
+       label = accountBalances.label, 
+       balances = accountBalances.balances.map( balance => 
+         BalanceJsonV400(`type`=balance.balanceType, currency = balance.balance.currency, amount = balance.balance.amount)
+       )
+     )
+  }
 
   def createConsentsJsonV400(consents: List[MappedConsent]): ConsentsJsonV400= {
     ConsentsJsonV400(consents.map(c => ConsentJsonV400(c.consentId, c.jsonWebToken, c.status, c.apiStandard, c.apiVersion)))
+  }
+  def createConsentInfosJsonV400(consents: List[MappedConsent]): ConsentInfosJsonV400= {
+    ConsentInfosJsonV400(consents.map(c => 
+      ConsentInfoJsonV400(
+        c.consentId,
+        c.consumerId,
+        c.userId,
+        if(c.lastActionDate!=null) new SimpleDateFormat(DateWithDay).format(c.lastActionDate) else null, 
+        if(c.usesSoFarTodayCounterUpdatedAt!=null) new SimpleDateFormat(DateWithSeconds).format(c.usesSoFarTodayCounterUpdatedAt) else null, 
+        c.status, 
+        c.apiStandard, 
+        c.apiVersion))
+    )
   }
 
   def createApiCollectionJsonV400(apiCollection: ApiCollectionTrait) = {
@@ -1072,6 +1490,7 @@ object JSONFactory400 {
         apiCollection.userId,
         apiCollection.apiCollectionName,
         apiCollection.isSharable,
+        apiCollection.description
       )
   }
   def createIbanCheckerJson(iban: IbanChecker): IbanCheckerJsonV400 = {
@@ -1137,9 +1556,241 @@ object JSONFactory400 {
     )
   }
 
+
+  def createProductAttributeJson(productAttribute: ProductAttribute): ProductAttributeResponseJsonV400 =
+    ProductAttributeResponseJsonV400(
+      bank_id = productAttribute.bankId.value,
+      product_code = productAttribute.productCode.value,
+      product_attribute_id = productAttribute.productAttributeId,
+      name = productAttribute.name,
+      `type` = productAttribute.attributeType.toString,
+      value = productAttribute.value,
+      is_active = productAttribute.isActive
+    )
+  def createBankAttributeJson(bankAttribute: BankAttribute): BankAttributeResponseJsonV400 =
+    BankAttributeResponseJsonV400(
+      bank_id = bankAttribute.bankId.value,
+      bank_attribute_id = bankAttribute.bankAttributeId,
+      name = bankAttribute.name,
+      `type` = bankAttribute.attributeType.toString,
+      value = bankAttribute.value,
+      is_active = bankAttribute.isActive
+    )
+  def createBankAttributesJson(bankAttributes: List[BankAttribute]): BankAttributesResponseJsonV400 =
+    BankAttributesResponseJsonV400(bankAttributes.map(createBankAttributeJson))
+  
+    
+  def createProductFeeJson(productFee: ProductFeeTrait): ProductFeeResponseJsonV400 =
+    ProductFeeResponseJsonV400(
+      bank_id = productFee.bankId.value,
+      product_code = productFee.productCode.value,
+      product_fee_id = productFee.productFeeId,
+      name = productFee.name,
+      is_active = productFee.isActive,
+      more_info = productFee.moreInfo,
+      value = ProductFeeValueJsonV400(
+        currency = productFee.currency,
+        amount = productFee.amount,
+        frequency= productFee.frequency,
+        `type`= productFee.`type`
+      )
+    )
+
+  def createProductFeesJson(productFees: List[ProductFeeTrait]): ProductFeesResponseJsonV400 =
+    ProductFeesResponseJsonV400(productFees.map(createProductFeeJson))
+    
+
   def createApiCollectionEndpointsJsonV400(apiCollectionEndpoints: List[ApiCollectionEndpointTrait]) = {
     ApiCollectionEndpointsJson400(apiCollectionEndpoints.map(apiCollectionEndpoint => createApiCollectionEndpointJsonV400(apiCollectionEndpoint)))
   }
+  def createAtmJsonV400(atm: AtmT): AtmJsonV400 = {
+    AtmJsonV400(
+      id= Some(atm.atmId.value),
+      bank_id= atm.bankId.value,
+      name= atm.name,
+      AddressJsonV300(atm.address.line1,
+        atm.address.line2,
+        atm.address.line3,
+        atm.address.city,
+        atm.address.county.getOrElse(""),
+        atm.address.state,
+        atm.address.postCode,
+        atm.address.countryCode),
+      createLocationJson(atm.location),
+      createMetaJson(atm.meta),
+      monday = OpeningTimesV300(
+        opening_time = atm.OpeningTimeOnMonday.getOrElse(""),
+        closing_time = atm.ClosingTimeOnMonday.getOrElse("")),
+      tuesday = OpeningTimesV300(
+        opening_time = atm.OpeningTimeOnTuesday.getOrElse(""),
+        closing_time = atm.ClosingTimeOnTuesday.getOrElse("")),
+      wednesday = OpeningTimesV300(
+        opening_time = atm.OpeningTimeOnWednesday.getOrElse(""),
+        closing_time = atm.ClosingTimeOnWednesday.getOrElse("")),
+      thursday = OpeningTimesV300(
+        opening_time = atm.OpeningTimeOnThursday.getOrElse(""),
+        closing_time = atm.ClosingTimeOnThursday.getOrElse("")),
+      friday = OpeningTimesV300(
+        opening_time = atm.OpeningTimeOnFriday.getOrElse(""),
+        closing_time = atm.ClosingTimeOnFriday.getOrElse("")),
+      saturday = OpeningTimesV300(
+        opening_time = atm.OpeningTimeOnSaturday.getOrElse(""),
+        closing_time = atm.ClosingTimeOnSaturday.getOrElse("")),
+      sunday = OpeningTimesV300(
+        opening_time = atm.OpeningTimeOnSunday.getOrElse(""),
+        closing_time = atm.ClosingTimeOnSunday.getOrElse("")),
+      is_accessible = atm.isAccessible.map(_.toString).getOrElse(""),
+      located_at = atm.locatedAt.getOrElse(""),
+      more_info = atm.moreInfo.getOrElse(""),
+      has_deposit_capability = atm.hasDepositCapability.map(_.toString).getOrElse(""),
+      supported_languages = atm.supportedLanguages.getOrElse(Nil),
+      services = atm.services.getOrElse(Nil),
+      accessibility_features = atm.accessibilityFeatures.getOrElse(Nil),
+      supported_currencies = atm.supportedCurrencies.getOrElse(Nil),
+      notes = atm.notes.getOrElse(Nil),
+      location_categories = atm.locationCategories.getOrElse(Nil),
+      minimum_withdrawal = atm.minimumWithdrawal.getOrElse(""),
+      branch_identification = atm.branchIdentification.getOrElse(""),
+      site_identification = atm.siteIdentification.getOrElse(""),
+      site_name = atm.siteName.getOrElse(""),
+      cash_withdrawal_national_fee = atm.cashWithdrawalNationalFee.getOrElse(""),
+      cash_withdrawal_international_fee = atm.cashWithdrawalInternationalFee.getOrElse(""),
+      balance_inquiry_fee = atm.balanceInquiryFee.getOrElse(""),
+    )
+  }
+  
+  def createAtmsJsonV400(atmList: List[AtmT]): AtmsJsonV400 = {
+      AtmsJsonV400(atmList.map(createAtmJsonV400))
+  }
+  
+  def transformToAtmFromV400(atmJsonV400: AtmJsonV400): Atm = {
+    val address : Address = transformToAddressFromV300(atmJsonV400.address) // Note the address in V220 is V140
+    val location: Location =  transformToLocationFromV140(atmJsonV400.location)  // Note the location is V140
+    val meta: Meta =  transformToMetaFromV140(atmJsonV400.meta)  // Note the meta  is V140
+    val isAccessible: Boolean = Try(atmJsonV400.is_accessible.toBoolean).getOrElse(false)
+    val hdc: Boolean = Try(atmJsonV400.has_deposit_capability.toBoolean).getOrElse(false)
+    
+    Atm(
+      atmId = AtmId(atmJsonV400.id.getOrElse("")),
+      bankId = BankId(atmJsonV400.bank_id),
+      name = atmJsonV400.name,
+      address = address,
+      location = location,
+      meta = meta,
+      OpeningTimeOnMonday = Some(atmJsonV400.monday.opening_time),
+      ClosingTimeOnMonday = Some(atmJsonV400.monday.closing_time),
+
+      OpeningTimeOnTuesday = Some(atmJsonV400.tuesday.opening_time),
+      ClosingTimeOnTuesday = Some(atmJsonV400.tuesday.closing_time),
+
+      OpeningTimeOnWednesday = Some(atmJsonV400.wednesday.opening_time),
+      ClosingTimeOnWednesday = Some(atmJsonV400.wednesday.closing_time),
+
+      OpeningTimeOnThursday = Some(atmJsonV400.thursday.opening_time),
+      ClosingTimeOnThursday = Some(atmJsonV400.thursday.closing_time),
+
+      OpeningTimeOnFriday = Some(atmJsonV400.friday.opening_time),
+      ClosingTimeOnFriday = Some(atmJsonV400.friday.closing_time),
+
+      OpeningTimeOnSaturday = Some(atmJsonV400.saturday.opening_time),
+      ClosingTimeOnSaturday = Some(atmJsonV400.saturday.closing_time),
+
+      OpeningTimeOnSunday = Some(atmJsonV400.sunday.opening_time),
+      ClosingTimeOnSunday = Some(atmJsonV400.sunday.closing_time),
+      // Easy access for people who use wheelchairs etc. true or false ""=Unknown
+      isAccessible = Some(isAccessible),
+      locatedAt = Some(atmJsonV400.located_at),
+      moreInfo = Some(atmJsonV400.more_info),
+      hasDepositCapability = Some(hdc),
+
+      supportedLanguages = Some(atmJsonV400.supported_languages),
+      services = Some(atmJsonV400.services),
+      accessibilityFeatures = Some(atmJsonV400.accessibility_features),
+      supportedCurrencies = Some(atmJsonV400.supported_currencies),
+      notes = Some(atmJsonV400.notes),
+      minimumWithdrawal = Some(atmJsonV400.minimum_withdrawal ),
+      branchIdentification = Some(atmJsonV400.branch_identification),
+      locationCategories = Some(atmJsonV400.location_categories ),
+      siteIdentification = Some(atmJsonV400.site_identification),
+      siteName = Some(atmJsonV400.site_name),
+      cashWithdrawalNationalFee = Some(atmJsonV400.cash_withdrawal_national_fee),
+      cashWithdrawalInternationalFee = Some(atmJsonV400.cash_withdrawal_international_fee),
+      balanceInquiryFee = Some(atmJsonV400.balance_inquiry_fee)
+    )
+  }
+
+  def createProductJson(product: Product) : ProductJsonV400 = {
+    ProductJsonV400(
+      bank_id = product.bankId.toString,
+      product_code = product.code.value,
+      parent_product_code = product.parentProductCode.value,
+      name = product.name,
+      more_info_url = product.moreInfoUrl,
+      terms_and_conditions_url = product.termsAndConditionsUrl,
+      description = product.description,
+      meta = createMetaJson(product.meta),
+      None,
+      None
+    )
+  }
+  def createProductsJson(productsList: List[Product]) : ProductsJsonV400 = {
+    ProductsJsonV400(productsList.map(createProductJson))}
+
+  def createProductJson(product: Product, productAttributes: List[ProductAttribute], productFees:List[ProductFeeTrait]) : ProductJsonV400 = {
+    ProductJsonV400(
+      bank_id = product.bankId.toString,
+      product_code = product.code.value,
+      parent_product_code = product.parentProductCode.value,
+      name = product.name,
+      more_info_url = product.moreInfoUrl,
+      terms_and_conditions_url = product.termsAndConditionsUrl,
+      description = product.description,
+      meta = createMetaJson(product.meta),
+      attributes = Some(createProductAttributesJson(productAttributes)),
+      fees = Some(productFees.map(productFee =>ProductFeeJsonV400(
+        product_fee_id= Some(productFee.productFeeId),
+        name = productFee.name,
+        is_active = productFee.isActive,
+        more_info = productFee.moreInfo,
+        value = ProductFeeValueJsonV400(
+        currency = productFee.currency,
+        amount = productFee.amount,
+        frequency = productFee.frequency,
+        `type` = productFee.`type`
+      ))))
+    )
+  }
+
+
+
+  def createPostHistoricalTransactionResponseJson(
+                                                   bankId: BankId,
+                                                   transactionId: TransactionId,
+                                                   fromAccountId: AccountId,
+                                                   toAccountId: AccountId,
+                                                   value: AmountOfMoneyJsonV121,
+                                                   description: String,
+                                                   posted: Date,
+                                                   completed: Date,
+                                                   transactionRequestType: String,
+                                                   chargePolicy: String
+                                                 ) : PostHistoricalTransactionResponseJsonV400 = {
+    PostHistoricalTransactionResponseJsonV400(
+      transaction_id = transactionId.value,
+      from = HistoricalTransactionAccountJsonV400(bankId.value, fromAccountId.value),
+      to = HistoricalTransactionAccountJsonV400(bankId.value, toAccountId.value),
+      value: AmountOfMoneyJsonV121,
+      description: String,
+      posted: Date,
+      completed: Date,
+      transaction_request_type = transactionRequestType,
+      chargePolicy: String
+    )
+  }
+  
+  
+  
+  
   
 }
 

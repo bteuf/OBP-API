@@ -29,7 +29,6 @@ package bootstrap.liftweb
 import java.io.{File, FileInputStream}
 import java.util.stream.Collectors
 import java.util.{Locale, TimeZone}
-
 import code.CustomerDependants.MappedCustomerDependant
 import code.DynamicData.DynamicData
 import code.DynamicEndpoint.DynamicEndpoint
@@ -100,9 +99,13 @@ import code.scheduler.DatabaseDriverScheduler
 import code.scope.{MappedScope, MappedUserScope}
 import code.apicollectionendpoint.ApiCollectionEndpoint
 import code.apicollection.ApiCollection
+import code.bankattribute.BankAttribute
 import code.connectormethod.ConnectorMethod
 import code.dynamicMessageDoc.DynamicMessageDoc
 import code.dynamicResourceDoc.DynamicResourceDoc
+import code.endpointMapping.EndpointMapping
+import code.endpointTag.EndpointTag
+import code.productfee.ProductFee
 import code.snippet.{OAuthAuthorisation, OAuthWorkedThanks}
 import code.socialmedia.MappedSocialMedia
 import code.standingorders.StandingOrder
@@ -117,6 +120,7 @@ import code.transactionattribute.MappedTransactionAttribute
 import code.transactionrequests.{MappedTransactionRequest, MappedTransactionRequestTypeCharge, TransactionRequestReasons}
 import code.usercustomerlinks.MappedUserCustomerLink
 import code.userlocks.UserLocks
+import code.users.{UserAgreement, UserInitAction, UserInvitation}
 import code.util.Helper.MdcLoggable
 import code.util.{Helper, HydraUtil}
 import code.validation.JsonSchemaValidation
@@ -127,6 +131,7 @@ import code.webuiprops.WebUiProps
 import com.openbankproject.commons.model.ErrorMessage
 import com.openbankproject.commons.util.Functions.Implicits._
 import com.openbankproject.commons.util.{ApiVersion, Functions}
+import javax.mail.{Authenticator, PasswordAuthentication}
 import javax.mail.internet.MimeMessage
 import net.liftweb.common._
 import net.liftweb.db.DBLogEntry
@@ -264,12 +269,22 @@ class Boot extends MdcLoggable {
        }
      }
     }
+    implicit val formats = CustomJsonFormats.formats 
+    LiftRules.statelessDispatch.prepend {
+      case _ if tryo(DB.use(DefaultConnectionIdentifier){ conn => conn}.isClosed).isEmpty =>
+        Props.mode match {
+          case Props.RunModes.Development =>
+            () =>
+              Full(
+                JsonResponse(
+                  Extraction.decompose(ErrorMessage(code = 500, message = s"${ErrorMessages.DatabaseConnectionClosedError}")),
+                  500
+                )
+              )
+        }
+    }
     
     logger.info("Mapper database info: " + Migration.DbFunction.mapperDatabaseInfo())
-
-    import java.security.SecureRandom
-    val rand = new SecureRandom(SecureRandom.getSeed(20))
-    rand
 
     //If use_custom_webapp=true, this will copy all the files from `OBP-API/obp-api/src/main/webapp` to `OBP-API/obp-api/src/main/resources/custom_webapp`
     if (APIUtil.getPropsAsBoolValue("use_custom_webapp", false)){
@@ -300,7 +315,7 @@ class Boot extends MdcLoggable {
       case true => // DB already exist
         // Migration Scripts are used to update the model of OBP-API DB to a latest version.
         // Please note that migration scripts are executed before Lift Mapper Schemifier
-        Migration.database.executeScripts()
+        Migration.database.executeScripts(startedBeforeSchemifier = true)
         logger.info("The Mapper database already exits. The scripts are executed BEFORE Lift Mapper Schemifier.")
       case false => // DB is still not created. The scripts will be executed after Lift Mapper Schemifier
         logger.info("The Mapper database is still not created. The scripts are going to be executed AFTER Lift Mapper Schemifier.")
@@ -385,15 +400,16 @@ class Boot extends MdcLoggable {
     enableVersionIfAllowed(ApiVersion.v3_0_0)
     enableVersionIfAllowed(ApiVersion.v3_1_0)
     enableVersionIfAllowed(ApiVersion.v4_0_0)
-    enableVersionIfAllowed(ApiVersion.apiBuilder)
+    enableVersionIfAllowed(ApiVersion.b1)
 
-    
-    def enableAPIs: LiftRules#RulesSeq[DispatchPF] = {
+    def enableOpenIdConnectApis = {
       //  OpenIdConnect endpoint and validator
-      if(APIUtil.getPropsAsBoolValue("openid_connect.enabled", false)) {
+      if (APIUtil.getPropsAsBoolValue("openid_connect.enabled", false)) {
         LiftRules.dispatch.append(OpenIdConnect)
       }
-      
+    }
+    def enableAPIs: LiftRules#RulesSeq[DispatchPF] = {
+
       //OAuth API call
       LiftRules.statelessDispatch.append(OAuthHandshake)
 
@@ -408,10 +424,20 @@ class Boot extends MdcLoggable {
     }
 
     APIUtil.getPropsValue("server_mode", "apis,portal") match {
-      case mode if mode == "portal" => 
-      case mode if mode == "apis" => enableAPIs
-      case mode if mode.contains("apis") && mode.contains("portal") => enableAPIs
-      case _ => enableAPIs
+      // Instance runs as the portal only
+      case mode if mode == "portal" => // Callback url in case of OpenID Connect MUST be enabled at portal side
+        enableOpenIdConnectApis
+      // Instance runs as the APIs only
+      case mode if mode == "apis" => 
+        enableAPIs
+      // Instance runs as the portal and APIs as well
+      // This is default mode
+      case mode if mode.contains("apis") && mode.contains("portal") => 
+        enableAPIs
+        enableOpenIdConnectApis
+      // Failure
+      case _ =>
+        throw new RuntimeException("The props server_mode`is not properly set. Allowed cases: { server_mode=portal, server_mode=apis, server_mode=apis,portal }")
     }
     
 
@@ -434,12 +460,6 @@ class Boot extends MdcLoggable {
 
     // LiftRules.statelessDispatch.append(Metrics) TODO: see metric menu entry below
 
-    //add sandbox api calls only if we're running in sandbox mode
-    if(APIUtil.getPropsAsBoolValue("allow_sandbox_data_import", false)) {
-      enableVersionIfAllowed(ApiVersion.sandbox)
-    } else {
-      logger.info("Not adding sandbox api calls")
-    }
 
     //launch the scheduler to clean the database from the expired tokens and nonces
     Schedule.schedule(()=> OAuthAuthorisation.dataBaseCleaner, 2 minutes)
@@ -492,30 +512,37 @@ class Boot extends MdcLoggable {
 
     logger.info (s"props_identifier is : ${APIUtil.getPropsValue("props_identifier", "NONE-SET")}")
 
-
-    // Build SiteMap
-    val indexPage = APIUtil.getPropsValue("server_mode", "apis,portal") match {
-      case mode if mode == "portal" => List(Menu.i("Home") / "index")
-      case mode if mode == "apis" => List()
-      case mode if mode.contains("apis") && mode.contains("portal") => List(Menu.i("Home") / "index")
-      case _ => List(Menu.i("Home") / "index")
-    }
-    val sitemap = indexPage ::: List(
-          Menu.i("Plain") / "plain",
-          Menu.i("Consumer Admin") / "admin" / "consumers" >> Admin.loginFirst >> LocGroup("admin")
-          	submenus(Consumer.menus : _*),
-          Menu("Consumer Registration", Helper.i18n("consumer.registration.nav.name")) / "consumer-registration" >> AuthUser.loginFirst,
-          Menu("Dummy user tokens", "Get Dummy user tokens") / "dummy-user-tokens" >> AuthUser.loginFirst,
-
-          Menu("Validate OTP", "Validate OTP") / "otp" >> AuthUser.loginFirst,
-          // Menu.i("Metrics") / "metrics", //TODO: allow this page once we can make the account number anonymous in the URL
-          Menu.i("OAuth") / "oauth" / "authorize", //OAuth authorization page
-          Menu.i("Consent") / "consent" >> AuthUser.loginFirst,//OAuth consent page
-          OAuthWorkedThanks.menu, //OAuth thanks page that will do the redirect
-          Menu.i("INTRODUCTION") / "introduction",
-          Menu.i("add-user-auth-context-update-request") / "add-user-auth-context-update-request",
-          Menu.i("confirm-user-auth-context-update-request") / "confirm-user-auth-context-update-request"
+    val commonMap = List(Menu.i("Home") / "index") ::: List(
+      Menu.i("Plain") / "plain",
+      Menu.i("Consumer Admin") / "admin" / "consumers" >> Admin.loginFirst >> LocGroup("admin")
+        submenus(Consumer.menus : _*),
+      Menu("Consumer Registration", Helper.i18n("consumer.registration.nav.name")) / "consumer-registration" >> AuthUser.loginFirst,
+      Menu("Dummy user tokens", "Get Dummy user tokens") / "dummy-user-tokens" >> AuthUser.loginFirst,
+    
+      Menu("Validate OTP", "Validate OTP") / "otp" >> AuthUser.loginFirst,
+      Menu("User Information", "User Information") / "user-information",
+      Menu("User Invitation", "User Invitation") / "user-invitation",
+      Menu("User Invitation Info", "User Invitation Info") / "user-invitation-info",
+      Menu("User Invitation Invalid", "User Invitation Invalid") / "user-invitation-invalid",
+      Menu("User Invitation Warning", "User Invitation Warning") / "user-invitation-warning",
+      Menu("Terms and Conditions", "Terms and Conditions") / "terms-and-conditions",
+      Menu("Privacy Policy", "Privacy Policy") / "privacy-policy",
+      // Menu.i("Metrics") / "metrics", //TODO: allow this page once we can make the account number anonymous in the URL
+      Menu.i("OAuth") / "oauth" / "authorize", //OAuth authorization page
+      Menu.i("Consent") / "consent" >> AuthUser.loginFirst,//OAuth consent page
+      OAuthWorkedThanks.menu, //OAuth thanks page that will do the redirect
+      Menu.i("Introduction") / "introduction",
+      Menu.i("add-user-auth-context-update-request") / "add-user-auth-context-update-request",
+      Menu.i("confirm-user-auth-context-update-request") / "confirm-user-auth-context-update-request"
     ) ++ accountCreation ++ Admin.menus
+    
+    // Build SiteMap
+    val sitemap = APIUtil.getPropsValue("server_mode", "apis,portal") match {
+      case mode if mode == "portal" => commonMap
+      case mode if mode == "apis" => List()
+      case mode if mode.contains("apis") && mode.contains("portal") => commonMap
+      case _ => commonMap
+    }
 
     def sitemapMutators = AuthUser.sitemapMutator
 
@@ -575,9 +602,15 @@ class Boot extends MdcLoggable {
     Mailer.devModeSend.default.set( (m : MimeMessage) => {
       logger.info("Would have sent email if not in dev mode: " + m.getContent)
     })
-
-    implicit val formats = CustomJsonFormats.formats
+    
     LiftRules.exceptionHandler.prepend{
+      case(_, r, e) if DB.use(DefaultConnectionIdentifier){ conn => conn}.isClosed => {
+        logger.error("Exception being returned to browser when processing " + r.uri.toString, e)
+        JsonResponse(
+          Extraction.decompose(ErrorMessage(code = 500, message = s"${ErrorMessages.DatabaseConnectionClosedError}")),
+          500
+        )
+      }
       case(Props.RunModes.Development, r, e) => {
         logger.error("Exception being returned to browser when processing " + r.uri.toString, e)
         JsonResponse(
@@ -624,7 +657,7 @@ class Boot extends MdcLoggable {
 
     // Migration Scripts are used to update the model of OBP-API DB to a latest version.
     // Please note that migration scripts are executed after Lift Mapper Schemifier
-    Migration.database.executeScripts()
+    Migration.database.executeScripts(startedBeforeSchemifier = false)
 
     // export one Connector's methods as endpoints, it is just for develop
     APIUtil.getPropsValue("connector.name.export.as.endpoints").foreach { connectorName =>
@@ -744,7 +777,7 @@ class Boot extends MdcLoggable {
     val currentTime = now.toString
     val stackTrace = new String(outputStream.toByteArray)
     val error = currentTime + ": " + stackTrace
-    val host = APIUtil.getPropsValue("hostname", "unknown host")
+    val host = Constant.HostName
 
     val mailSent = for {
       from <- APIUtil.getPropsValue("mail.exception.sender.address") ?~ "Could not send mail: Missing props param for 'from'"
@@ -830,6 +863,8 @@ object ToSchemify {
     AccountAccess,
     ViewDefinition,
     ResourceUser,
+    UserInvitation,
+    UserAgreement,
     MappedComment,
     MappedTag,
     MappedWhereTag,
@@ -867,6 +902,7 @@ object ToSchemify {
     MappedCustomerAttribute,
     MappedTransactionAttribute,
     MappedCardAttribute,
+    BankAttribute,
     RateLimiting,
     MappedCustomerDependant,
     AttributeDefinition
@@ -909,6 +945,7 @@ object ToSchemify {
     MappedConsent,
     MigrationScriptLog,
     MethodRouting,
+    EndpointMapping,
     WebUiProps,
     Authorisation,
     DynamicEntity,
@@ -924,7 +961,10 @@ object ToSchemify {
     AuthenticationTypeValidation,
     ConnectorMethod,
     DynamicResourceDoc,
-    DynamicMessageDoc
+    DynamicMessageDoc,
+    EndpointTag,
+    ProductFee,
+    UserInitAction
   )++ APIBuilder_Connector.allAPIBuilderModels
 
   // start grpc server

@@ -55,7 +55,7 @@ object OBP_BERLIN_GROUP_1_3 extends OBPRestHelper with MdcLoggable with ScannedA
   override val apiVersion = ScannedApiVersion("berlin-group", "BG", "v1.3")
   val versionStatus = "DRAFT"
 
-  private[this] val endpoints =
+  val endpoints =
     APIMethods_AccountInformationServiceAISApi.endpoints ++
     APIMethods_ConfirmationOfFundsServicePIISApi.endpoints ++
     APIMethods_PaymentInitiationServicePISApi.endpoints ++

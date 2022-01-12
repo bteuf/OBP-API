@@ -2,7 +2,36 @@
 
 ### Most recent changes at top of file
 ```
-Date          Commit        Action 
+Date          Commit        Action
+01/11/2021    03305d2b      Added props: rest_connector_sends_x-sign_header, default is false
+17/09/2021    e65cd51d      Added props: webui_main_faq_external_link, default is obp static file: /main-faq.html
+09/09/2021    65952225      Added props: webui_support_email, default is contact@openbankproject.com
+02/09/2021    a826d908      Renamed Web UI props:  
+                            webui_post_user_invitation_privacy_conditions_value => webui_privacy_policy
+                            webui_post_user_invitation_terms_and_conditions_value => webui_terms_and_conditions
+20/08/2021    2ad1a3b0      Updated implementations of Akka, Rest and Stored Procedure connectors via the builder.  
+18/08/2021    83c3b4fa      Added props: webui_favicon_link_url, default is /favicon.ico
+18/08/2021    5924c820      Added props: webui_api_documentation_bottom_url, default is https://github.com/OpenBankProject/OBP-API/wiki
+                            Added props: webui_privacy_policy_url, default is https://openbankproject.com/privacy-policy
+30/06/2021    cf2dd987      Changed props, static will cache 24 hours, dynamic only 1 hour as default.
+                            dynamicResourceDocsObp.cache.ttl.seconds=3600
+                            staticResourceDocsObp.cache.ttl.seconds=86400
+30/06/2021    cf2dd987      Added props: email_domain_to_entitlement_mappings, default is empty
+                            We can automatically grant the Entitlements required to the User has access to via their validated email domain. 
+                            Entitlements are generated /refreshed both following manual locin and Direct Login token generation (POST).
+29/06/2021    98c5503c      Existing Props authUser.skipEmailValidation now defaults to false (i.e. we now force email validation by default)
+29/06/2021    0b08199b      Added props: email_domain_to_space_mappings, default is empty
+                            We can automatically grant the Entitlements required to use all the Dynamic Endpoint roles belonging to 
+                            the bank_ids (Spaces) the User has access to via their validated email domain. Entitlements are 
+                            generated /refreshed both following manual locin and Direct Login token generation (POST).
+26/06/2021    62fe53d9      Added props: consumer_registration.display_app_type, default is 'true'.
+                            Support removing the app type checkbox during consumer registration
+24/06/2021    e863c9dd      Added props: brands_enabled, default is 'false'.
+                            Support multiple brands on one instance. Note this needs checking on a clustered environment
+14/03/2021    e29001e2      Added props: webui_login_page_instruction_title, default is 'Log on to the Open Bank Project API'.
+                            The clients can customise the login page instraction title.
+13/03/2021    3c9880a9      Added props: featured_api_collection_ids, default is Empty.
+                            This props is used for the featured api collections. Eg: API_Explorer will consume it to modify the Home Page.
 11/03/2021    ae211dd9      Added props: default_auth_context_update_request_key, default is CUSTOMER_NUMBER.
                             This props is used for the User Onboard page, we can have the default identifier key.
                             The different banks may have different identifiers for their customers, eg: CUSTOMER_NUMBER, TAX_ID...

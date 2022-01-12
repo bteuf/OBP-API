@@ -169,7 +169,7 @@ object ReferenceType {
           .recover(recoverFn(fieldName, value, "MethodRouting"))
     },
     "reference:DynamicEntity" -> {(fieldName, value, callContext) =>
-        NewStyle.function.getDynamicEntityById(value, callContext)
+        NewStyle.function.getDynamicEntityById(None, value, callContext)
           .map(mapFn(fieldName, value, "DynamicEntity"))
           .recover(recoverFn(fieldName, value, "DynamicEntity"))
     },
@@ -283,7 +283,7 @@ object ReferenceType {
   )
 
   def referenceTypeNames: List[String] = {
-    val dynamicRefs: List[String] = NewStyle.function.getDynamicEntities()
+    val dynamicRefs: List[String] = NewStyle.function.getDynamicEntities(None)
       .map(entity => s"reference:${entity.entityName}")
 
     val staticRefs: List[String] = staticRefTypeToValidateFunction.keys.toList
@@ -343,7 +343,7 @@ object ReferenceType {
     } else {
       val dynamicEntityName = typeName.replace("reference:", "")
       val errorMsg = s"""$dynamicEntityName not found by the id value '$value', propertyName is '$propertyName'"""
-      NewStyle.function.invokeDynamicConnector(DynamicEntityOperation.GET_ONE,dynamicEntityName, None, Some(value), None, callContext)
+      NewStyle.function.invokeDynamicConnector(DynamicEntityOperation.GET_ONE,dynamicEntityName, None, Some(value), None, None, callContext)
         .recover {
           case _: Throwable => errorMsg
         }
@@ -534,15 +534,15 @@ case class DynamicEntityIntTypeExample(`type`: DynamicEntityFieldType, example: 
 
 
 trait DynamicEntityProvider {
-  def getById(dynamicEntityId: String): Box[DynamicEntityT]
+  def getById(bankId: Option[String], dynamicEntityId: String): Box[DynamicEntityT]
 
+  //Note, we use entity name to create the roles, and bank level and system level can not be mixed, 
+  // so --> here can not use bankId as parameters: 
   def getByEntityName(entityName: String): Box[DynamicEntityT]
 
-  def getDynamicEntities(): List[DynamicEntityT]
+  def getDynamicEntities(bankId: Option[String]): List[DynamicEntityT]
   
   def getDynamicEntitiesByUserId(userId: String): List[DynamicEntity]
-
-  def getDynamicEntitiesByBankId(bankId: String): List[DynamicEntity]
 
   def createOrUpdate(dynamicEntity: DynamicEntityT): Box[DynamicEntityT]
 

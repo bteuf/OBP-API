@@ -1,5 +1,7 @@
 package code.remotedata
 
+import java.util.Date
+
 import akka.actor.Actor
 import akka.pattern.pipe
 import code.actorsystem.ObpActorHelper
@@ -10,6 +12,7 @@ import code.util.Helper.MdcLoggable
 
 import scala.collection.immutable.List
 import com.openbankproject.commons.ExecutionContext.Implicits.global
+import com.openbankproject.commons.model.UserPrimaryKey
 
 class RemotedataUsersActor extends Actor with ObpActorHelper with MdcLoggable  {
 
@@ -69,6 +72,10 @@ class RemotedataUsersActor extends Actor with ObpActorHelper with MdcLoggable  {
     case cc.getUserByEmailFuture(email: String) =>
       logger.debug("getUserByEmailFuture(" + email +")")
       sender ! (mapper.getUserByEmailF(email))
+      
+    case cc.getUsersByEmail(email: String) =>
+      logger.debug("getUsersByEmail(" + email +")")
+      mapper.getUsersByEmail(email) pipeTo sender
 
     case cc.getAllUsers() =>
       logger.debug("getAllUsers()")
@@ -76,11 +83,15 @@ class RemotedataUsersActor extends Actor with ObpActorHelper with MdcLoggable  {
 
     case cc.getAllUsersF(queryParams: List[OBPQueryParam]) =>
       logger.debug(s"getAllUsersF(queryParams: ($queryParams))")
-      sender ! (mapper.getAllUsersFF(queryParams))
+      mapper.getAllUsersF(queryParams) pipeTo sender
+      
+    case cc.getUsers(queryParams: List[OBPQueryParam]) =>
+      logger.debug(s"getUsers(queryParams: ($queryParams))")
+      mapper.getUsers(queryParams) pipeTo sender
 
-    case cc.createResourceUser(provider: String, providerId: Option[String], createdByConsentId: Option[String], name: Option[String], email: Option[String], userId: Option[String]) =>
-      logger.debug("createResourceUser(" + provider + ", " + providerId.getOrElse("None") + ", " + name.getOrElse("None") + ", " + email.getOrElse("None") + ", " + userId.getOrElse("None") + ")")
-      sender ! (mapper.createResourceUser(provider, providerId, createdByConsentId, name, email, userId))
+    case cc.createResourceUser(provider: String, providerId: Option[String], createdByConsentId: Option[String], name: Option[String], email: Option[String], userId: Option[String], createdByUserInvitationId: Option[String], company: Option[String], lastMarketingAgreementSignedDate: Option[Date]) =>
+      logger.debug("createResourceUser(" + provider + ", " + providerId.getOrElse("None") + ", " + name.getOrElse("None") + ", " + email.getOrElse("None") + ", " + userId.getOrElse("None") + ", " + createdByUserInvitationId.getOrElse("None") + ", " + company.getOrElse("None")  + ", " + lastMarketingAgreementSignedDate.getOrElse("None") + ")")
+      sender ! (mapper.createResourceUser(provider, providerId, createdByConsentId, name, email, userId, createdByUserInvitationId, company, lastMarketingAgreementSignedDate))
 
     case cc.createUnsavedResourceUser(provider: String, providerId: Option[String], name: Option[String], email: Option[String], userId: Option[String]) =>
       logger.debug("createUnsavedResourceUser(" + provider + ", " + providerId.getOrElse("None") + ", " + name.getOrElse("None") + ", " + email.getOrElse("None") + ", " + userId.getOrElse("None") + ")")
@@ -93,6 +104,10 @@ class RemotedataUsersActor extends Actor with ObpActorHelper with MdcLoggable  {
     case cc.deleteResourceUser(id: Long) =>
       logger.debug("deleteResourceUser(" + id +")")
       sender ! (mapper.deleteResourceUser(id))
+      
+    case cc.scrambleDataOfResourceUser(userPrimaryKey: UserPrimaryKey) =>
+      logger.debug("scrambleDataOfResourceUser(" + userPrimaryKey +")")
+      sender ! (mapper.scrambleDataOfResourceUser(userPrimaryKey))
 
     case cc.bulkDeleteAllResourceUsers() =>
       logger.debug("bulkDeleteAllResourceUsers()")

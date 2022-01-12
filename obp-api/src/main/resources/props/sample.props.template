@@ -1,6 +1,9 @@
 #this is a sample props file you should edit and rename
 #see https://www.assembla.com/wiki/show/liftweb/Properties for all the naming options, or just use "default.props" in this same folder
 
+# See notes about WebUI Props below
+
+
 ### OBP-API configuration
 
 
@@ -59,6 +62,9 @@ connector=mapped
 ## MethodRouting cache time-to-live in seconds
 #methodRouting.cache.ttl.seconds=30
 
+## EndpointMapping cache time-to-live in seconds
+#endpointMapping.cache.ttl.seconds=0
+
 ## webui props cache time-to-live in seconds
 #webui.props.cache.ttl.seconds=20
 
@@ -81,7 +87,8 @@ connectorMethod.cache.ttl.seconds=40
 ## swagger file should not generated for every request, this is a time-to-live in seconds for the generated swagger of OBP api,
 ## this value also represent how many seconds before the new endpoints will be shown after upload a new DynamicEntity.
 ## So if you want the new endpoints shown timely, set this value to a small number.
-resourceDocsObp.cache.ttl.seconds=3600
+dynamicResourceDocsObp.cache.ttl.seconds=3600
+staticResourceDocsObp.cache.ttl.seconds=86400
 
 ## This can change the behavior of  `Get Resource Docs`/`Get API Glossary`. If we set it to `true`, OBP will check the authentication and CanReadResourceDoc/CanReadGlossary Role
 # the default value is false, so the `Get Resource Docs`/`Get API Glossary` is anonymous as default. 
@@ -256,9 +263,6 @@ sandbox_data_import_secret=change_me
 
 ### API features
 
-## Secret key that allows access to the "add cash transactions" api. You should change this to your own secret key
-cashApplicationKey=change_me
-
 ## Set this to false if you don't want the api payments call to work (starting with v1.2.1)
 payments_enabled=true
 
@@ -336,6 +340,16 @@ BankMockKey=change_me
 # Add WebUiProps
 # Delete WebUiProps
 # Get WebUiProps
+
+# Please note: The non-commented-out webui_ props in this file are used to generate the default webui_ props used by the getWebUiProps endpoint which is used by API Manager -> Configurations -> WebUi Props
+# i.e. If you add a webui_ props in code but don't add it here, it will be missing from the API Manager screen where users can set it.
+
+# A note about WebUi Props precedence
+# If a database WebUI Props is found it will be used first.
+# If a database WebUI Props is not found, the version in the Props file will be used.
+# Note: Props can also be loaded from the environment.
+
+
 ####################################################################################
 
 
@@ -373,12 +387,16 @@ webui_obp_cli_url = https://github.com/OpenBankProject/OBP-CLI
 # API Tester URL, change to your instance
 webui_api_tester_url = https://apitester.openbankproject.com
 
+# API Hola app URL, change to your instance
+webui_api_hola_url = #
+
 
 
 
 # To display a custom message above the username / password box
 # We currently use this to display example customer login in sandbox etc.
-webui_login_page_special_instructions=
+#webui_login_page_special_instructions=
+#webui_login_page_instruction_title=Log on to the Open Bank Project API
 
 
 ##################################################################################
@@ -394,6 +412,8 @@ webui_sandbox_introduction=
 # NOTE: if this is *not set*, the Introduction Button on /index will link the user to /introduction
 # If this is set, the Introduction Button will link the user to the URL defined above. (but the page /introduction will still exist so you might want to populate webui_sandbox_introduction anyway.)
 webui_api_documentation_url = https://github.com/OpenBankProject/OBP-API/wiki
+# now, we hava a new props for the bottom ` API Documentation` menu.
+#webui_api_documentation_bottom_url =https://github.com/OpenBankProject/OBP-API/wiki
 ###################################################################################
 
 # Link for SDKs
@@ -402,6 +422,11 @@ webui_sdks_url = https://github.com/OpenBankProject/OBP-API/wiki/OAuth-Client-SD
 # the external html page for the sdks. the default link is the obp one. Please following the div to modify it. This link should be anonymous access.
 # then OBP-API can show the content to the HomePage `SDK Showcases`. Please check it over the sandbox homepage first.
 #webui_featured_sdks_external_link = https://static.openbankproject.com/obp/sdks.html   
+
+
+# the external html page for the FAQ section. the default link is the obp one. Please following the div to modify it. This link should be anonymous access.
+# then OBP-API can show the content to the HomePage `FAQs`. Please check it over the sandbox homepage first.
+#webui_main_faq_external_link = /main-faq.html
 
 # Text about data in FAQ
 webui_faq_data_text = We use real data and customer profiles which have been anonymized.
@@ -413,7 +438,7 @@ webui_faq_url = https://openbankproject.com/faq/
 webui_faq_email = contact@openbankproject.com
 
 # Link to support platform
-webui_support_platform_url = https://slack.openbankproject.com/
+webui_support_platform_url = https://chat.openbankproject.com
 
 # Link to Direct Login glossary on api explorer
 webui_direct_login_documentation_url =
@@ -445,6 +470,9 @@ webui_main_partners=[\
 # Prefix for all page titles (note the trailing space!)
 webui_page_title_prefix = Open Bank Project: 
 
+# set the favicon icon
+#webui_favicon_link_url =/favicon.ico
+
 # Main style sheet. Add your own if need be.
 webui_main_style_sheet = /media/css/website.css
 
@@ -453,6 +481,12 @@ webui_override_style_sheet =
 
 ## Link to agree to Terms & Conditions, shown on signup page
 webui_agree_terms_url =
+
+## The Support Email, shown in the bottom page
+#webui_support_email=contact@openbankproject.com
+
+## Link to Privacy Policy, shown in the bottom page
+#webui_privacy_policy_url =
 
 # URL to load (additional) vendor support content
 #webui_vendor_support_content_url = http://127.0.0.1:8080/plain.html
@@ -542,27 +576,43 @@ super_admin_user_ids=USER_ID1,USER_ID2,
 # In OBP, endpoints are defined in various files but made available under a *version*
 # e.g. in v3_0_0 (aka v3.0.0) we have endpoints from various versions.
 # Thus when we enable/disable a version we enable/disable a group of endpoints which are defined in several files.
+# To enable / disable a version here you can use a fullyQualifiedVersion or apiShortVersion e.g.:
+# "OBPv4.0.0" or "v4.0.0"
+# "OBPv3.1.0" or "v3.1.0"
+# "OBPv3.0.0" or "v3.0.0"
+# "BGv1" or "v1"
+# "BGv1.3" or "v1.3"
+# "PAPIv2.1.1.1" or "v2.1.1.1"
+# "STETv1.4" or "v1.4"
+# "UKv2.0" or "v2.0"
+# "AUv1.0.0" or "v1.0.0"
+# "UKv3.1" or "v3.1"
 #
-#
-# For a VERSION to be allowed it must be:
+# Note: we recommend to use the fullyQualifiedVersion. The apiShortVersion is depreciated here.
+# 
+# For a VERSION (the version in path e.g. /obp/v4.0.0) to be allowed, it must be:
 
-# 1) Absent from here:
-#api_disabled_versions=[v3.0.0]
+# 1) Absent from here (high priority):
+# Note the default is empty, not the example here.
+#api_disabled_versions=[OBPv3.0.0,BGv1.3]
 
-# 2) Present here OR this entry must be empty.
-#api_enabled_versions=[v2.2.0,v3.0.0]
+# 2) Present here OR this entry must be empty:
+# Note the default is empty, not the example here.
+#api_enabled_versions=[OBPv2.2.0,OBPv3.0.0,UKv2.0]
 
 # Note we use "v" and "." in the name to match the ApiVersions enumeration in ApiUtil.scala
 
-# For an ENDPOINT to be allowed it must be:
+# For an ENDPOINT (i.e. the scala function that serves the endpoint as identified its "operationId") to be allowed it must be:
 
-# 1) Absent from here:
-#api_disabled_endpoints=[createAccount]
+# 1) Absent from here:(high priority)
+# Note the default is empty, not the following example
+#api_disabled_endpoints=[OBPv3.0.0-getPermissionForUserForBankAccount]
 
 # 2) Present here OR this list must be empty
-#api_enabled_endpoints=[createAccount,accountById]
+# Note the default is empty, not the following example
+#api_enabled_endpoints=[OBPv3.0.0-getPermissionForUserForBankAccount,OBPv3.0.0-getViewsForBankAccount]
 
-# Note that "root" cannot be disabled
+# Note that "root" and also the documentation endpoints (Resource Doc and Swagger) cannot be disabled
 #
 #
 ##########################
@@ -577,6 +627,16 @@ super_admin_user_ids=USER_ID1,USER_ID2,
 ## Note: The email address used for login must match one
 ## registered on OBP localy.
 # openid_connect.enabled=true
+# openid_connect.show_tokens=false
+# Response mode
+# possible values: query, fragment, form_post, query.jwt, fragment.jwt, form_post.jwt, jwt
+# openid_connect.response_mode=form_post
+# Response type
+# possible values: "code", "id_token", "code id_token"
+# openid_connect.response_type=code
+# Scope
+# possible values: "openid email profile", "openid email", "openid"
+# openid_connect.scope=openid email profile
 # First identity provider
 # openid_connect_1.button_text = Google
 # openid_connect_1.client_secret=OYdWujJlU7fFOW_NXzPlDI4T
@@ -591,7 +651,7 @@ super_admin_user_ids=USER_ID1,USER_ID2,
 # openid_connect_2.button_text = name of 2nd provider
 # openid_connect_2.client_secret=OYdWujJlU7fFOW_NXzPlDI4T
 # openid_connect_2.client_id=883773244832-s4hi72j0rble0iiivq1gn09k7vvptdci.apps.googleusercontent.com
-# openid_connect_2.callback_url=http://127.0.0.1:8080/auth/openid-connect/callback
+# openid_connect_2.callback_url=http://127.0.0.1:8080/auth/openid-connect/callback-2
 # openid_connect_2.endpoint.authorization=https://accounts.google.com/o/oauth2/v2/auth
 # openid_connect_2.endpoint.userinfo=https://openidconnect.googleapis.com/v1/userinfo
 # openid_connect_2.endpoint.token=https://oauth2.googleapis.com/token
@@ -604,8 +664,8 @@ consumers_enabled_by_default=true
 # Autocomplete for login form has to be explicitly set
 autocomplete_at_login_form_enabled=false
 
-# Skip Auth User Email validation (defaults to true)
-#authUser.skipEmailValidation=true
+# Skip Auth User Email validation (defaults to false as of 29 June 2021)
+#authUser.skipEmailValidation=false
 
 # If using Kafka but want to get counterparties from OBP, set this to true
 #get_counterparties_from_OBP_DB=true
@@ -622,11 +682,21 @@ autocomplete_at_login_form_enabled=false
 # Enable/Disable Gateway communication at all
 # In case isn't defined default value is false
 # allow_gateway_login=false
+# Define secret used to validate JWT token
+# jwt.token_secret=your-at-least-256-bit-secret-token
 # Define comma separated list of allowed IP addresses
 # gateway.host=127.0.0.1
-# Define secret used to validate JWT token
-# gateway.token_secret=secret
-# -------------------------------------- Gateway login --
+
+
+# -- DAuth --------------------------------------
+# Enable/Disable DAuth communication at all
+# In case isn't defined default value is false
+allow_dauth=false
+# Define public key used to validate JWT token
+jwt.public_key_rsa=path-to-the-pem-file
+# Define comma separated list of allowed IP addresses
+dauth.host=127.0.0.1
+# -------------------------------------- DAuth--
 
 
 # Disable akka (Remote storage not possible)
@@ -655,6 +725,7 @@ display_internal_errors=false
 # -- OAuth 2 ---------------------------------------------------------------------------------
 # Enable/Disable OAuth 2 workflow at a server instance
 # In case isn't defined default value is false
+# NOTE: Make sure there is no space after the word true/false.
 # allow_oauth2_login=false
 # URL of Public server JWK set used for validating bearer JWT access tokens
 # It can contain more than one URL i.e. list of uris. Values are comma separated.
@@ -745,7 +816,9 @@ featured_apis=elasticSearchWarehouseV300
 # If Rest Connector do not get the response in the following seconds, it will throw the error message back.
 # This props can be omitted, the default value is 59. It should be less than Nginx timeout.
 # rest2019_connector_timeout = 59 
-
+# If set it to `true`, it will add the x-sign (SHA256WithRSA) into each the rest connector http calls, 
+# please add the name of the field for the UserAuthContext and/or link to other documentation.. 
+#rest_connector_sends_x-sign_header=false
 
  
 # -- Scopes -----------------------------------------------------
@@ -918,6 +991,9 @@ outboundAdapterCallContext.generalContext
 ### enable or disable the feature of send "Force-Error" header, default value is false
 enable.force_error=false
 
+### Force the feature of signing/verifing requests on a certain standard
+#force_jws=BGv1.3,UKv1.3,OBPv4.0.0,OBPv3.1.0
+
 # Suggested default SCA method
 # In case is not defined default value is SMS
 # Possible values: SMS, EMAIL, DUMMY, SMS_OTP, CHIP_OTP, PHOTO_OTP, PUSH_OTP
@@ -927,3 +1003,114 @@ enable.force_error=false
 ## This props is used for the User Onboard page, we can have the default identifier key.
 ## The different banks may have different identifiers for their customers, eg: CUSTOMER_NUMBER, TAX_ID, PASSPORT_NUMBER ...
 default_auth_context_update_request_key=CUSTOMER_NUMBER
+
+## This props is used for the featured api collection, eg: API_Explore will use the api collection to tweak the Home Page
+#featured_api_collection_ids=
+
+# the alias prefix path for BerlinGroupV1.3 (OBP built-in is berlin-group/v1.3), the format must be xxx/yyy, eg: 0.6/v1 
+#berlin_group_v1.3_alias.path=
+
+
+# Support multiple brands on one instance. Note this needs checking on a clustered environment 
+#brands_enabled=false
+
+# Support removing the app type checkbox during consumer registration 
+#consumer_registration.display_app_type=true
+
+# if set this props, we can automatically grant the Entitlements required to use all the Dynamic Endpoint roles belonging 
+# to the bank_ids (Spaces) the User has access to via their validated email domain. Entitlements are generated /refreshed 
+# both following manual login and Direct Login token generation (POST).
+# the default value is empty
+#email_domain_to_space_mappings=
+# And here we provide an example to show how to prepare the mappings
+#email_domain_to_space_mappings=[ \
+#                         { \
+#                           "domain": "example.com", \
+#                           "bank_ids": [ \
+#                             "gh.29.uk", \
+#                             "gh.29.fr" \
+#                           ] \
+#                         }, \
+#                         { \
+#                           "domain": "example2.com", \
+#                           "bank_ids": [ \
+#                             "gh.29.uk", \
+#                             "gh.29.it" \
+#                           ] \
+#                         }\
+#                       ]\
+#
+# if set this props, we can automatically grant the Entitlements required to the User has access to via their validated email domain.
+# Entitlements are generated /refreshed both following manual login and Direct Login token generation (POST).
+# the default value is empty
+#email_domain_to_entitlement_mappings=
+# And here we provide an example to show how to prepare the mappings
+#email_domain_to_entitlement_mappings = [\
+#                                         {\
+#                                           "domain": "example.com",\
+#                                           "entitlements": [\
+#                                             {\
+#                                               "role_name": "CanReadResourceDoc",\
+#                                               "bank_id": ""\
+#                                             }\
+#                                           ]\
+#                                         }\
+#                                       ]\
+#
+
+
+# User Invitation Time To Live
+# user_invitation.ttl.seconds=86400
+# User Invitation is mandatory in case of onboarding a user
+# user_invitation.mandatory=false
+
+# User (Developer) Invitation
+webui_post_user_invitation_submit_button_value=Register as a Developer
+webui_privacy_policy=
+webui_terms_and_conditions=
+webui_post_user_invitation_terms_and_conditions_checkbox_value=I agree to the above Developer Terms and Conditions
+
+webui_developer_user_invitation_email_html_text=<!DOCTYPE html>\
+                                                  <html>\
+                                                  <head>\
+                                                  <style>\
+                                                  .a {\
+                                                    border: none;\
+                                                    color: white;\
+                                                    padding: 15px 32px;\
+                                                    text-align: center;\
+                                                    text-decoration: none;\
+                                                    display: inline-block;\
+                                                    font-size: 16px;\
+                                                    margin: 4px 2px;\
+                                                    cursor: pointer;\
+                                                  }\
+                                                  \
+                                                  .a1 {background-color: #4CAF50;} /* Green */\
+                                                  .a2 {background-color: #008CBA;} /* Blue */\
+                                                  </style>\
+                                                  </head>\
+                                                  <body>\
+                                                  <img src="https://static.openbankproject.com/images/OBP_full_web_25pc.png"></img>\
+                                                  <hr></hr><br></br>\
+                                                  <p>Hi ${emailRecipient},<br></br>\
+                                                  Welcome to the Open Bank Project API. Your account has been registered. Please use the below link to activate it.</p>\
+                                                  <a href="${activateYourAccount}" class="a a1">Activate your account</a>\
+                                                  <p>Our operations team has granted you the appropriate access to the OBP-API. If you have any questions, or you need any assistance, please contact our support.</p>\
+                                                  <p>Thanks,<br></br> Your OBP API team</p><br></br>\
+                                                  <hr></hr>\
+                                                  <p>\
+                                                  Please do not reply to this email. Should you wish to contact us, please raise a ticket at our support page. We maintain strict security standards and procedures to prevent unauthorised access to information about you. We will never contact you by email or otherwise and ask you to validate personal information such as your user ID, password or account numbers. This e-mail is confidential. It may also be legally privileged. If you are not the addressee you may not copy, forward, disclose or use any part of it. If you have received this message in error, please delete it and all copies from your system. Internet communications cannot be guaranteed to be timely, secure, error or virus-free. The sender does not accept liability for any errors or omissions.\
+                                                  </p>\
+                                                  </body>\
+                                                  </html>
+                                                  
+# List of countries where consent is not required for the collection of personal data
+personal_data_collection_consent_country_waiver_list = Austria, Belgium, Bulgaria, Croatia, Republic of Cyprus, Czech Republic, Denmark, Estonia, Finland, France, Germany, Greece, Hungary, Ireland, Italy, Latvia, Lithuania, Luxembourg, Malta, Netherlands, Poland, Portugal, Romania, Slovakia, Slovenia, Spain, Sweden, England, Scotland, Wales, Northern Ireland
+
+# Sngle Sign On/Off
+# sso.enabled=false
+
+# Local identity provider url
+# it defaults to the hostname props value
+# local_identity_provider=this is the hostname of the local obp server including scheme

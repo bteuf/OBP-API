@@ -2,8 +2,9 @@ package code.consent
 
 import java.util.Date
 
-import code.api.util.{APIUtil, Consent, ErrorMessages}
+import code.api.util.{APIUtil, Consent, ErrorMessages, SecureRandomUtil}
 import code.consent.ConsentStatus.ConsentStatus
+import code.model.Consumer
 import code.util.MappedUUID
 import com.openbankproject.commons.model.User
 import net.liftweb.common.{Box, Empty, Failure, Full}
@@ -12,7 +13,6 @@ import net.liftweb.util.Helpers.{now, tryo}
 import org.mindrot.jbcrypt.BCrypt
 
 import scala.collection.immutable.List
-import scala.util.Random
 
 object MappedConsentProvider extends ConsentProvider {
   override def getConsentByConsentId(consentId: String): Box[MappedConsent] = {
@@ -70,16 +70,18 @@ object MappedConsentProvider extends ConsentProvider {
   }
   override def createBerlinGroupConsent(
     user: Option[User],
+    consumer: Option[Consumer],
     recurringIndicator: Boolean,
     validUntil: Date,
     frequencyPerDay: Int,
     combinedServiceIndicator: Boolean,
     apiStandard: Option[String],
-    apiVersion: Option[String]) ={
+    apiVersion: Option[String]): Box[MappedConsent] ={
     tryo {
       MappedConsent
         .create
         .mUserId(user.map(_.userId).getOrElse(null))
+        .mConsumerId(consumer.map(_.consumerId.get).getOrElse(null))
         .mStatus(ConsentStatus.RECEIVED.toString)
         .mRecurringIndicator(recurringIndicator)
         .mValidUntil(validUntil)
@@ -126,6 +128,7 @@ object MappedConsentProvider extends ConsentProvider {
       val consent = MappedConsent
         .create
         .mUserId(user.map(_.userId).getOrElse(null))
+        .mConsumerId(consumerId.getOrElse(null))
         .mStatus(ConsentStatus.AWAITINGAUTHORISATION.toString)
         .mExpirationDateTime(expirationDateTime)
         .mTransactionFromDateTime(transactionFromDateTime)
@@ -170,6 +173,7 @@ object MappedConsentProvider extends ConsentProvider {
       case Full(consent) =>
         tryo(consent
           .mStatus(ConsentStatus.REVOKED.toString)
+          .mLastActionDate(now)
           .saveMe())
       case Empty =>
         Empty ?~! ErrorMessages.ConsentNotFound
@@ -196,7 +200,7 @@ object MappedConsentProvider extends ConsentProvider {
             val status = 
               if (isAnswerCorrect(consent.challenge, challengeAnswer, consent.mSalt.get)) ConsentStatus.ACCEPTED.toString 
               else ConsentStatus.REJECTED.toString
-            tryo(consent.mStatus(status).saveMe())
+            tryo(consent.mStatus(status).mLastActionDate(now).saveMe())
           case _ =>
             Full(consent)
         }
@@ -221,12 +225,15 @@ class MappedConsent extends Consent with LongKeyedMapper[MappedConsent] with IdP
   object mSecret extends MappedUUID(this)
   object mStatus extends MappedString(this, 40)
   object mChallenge extends MappedString(this, 50)  {
-    override def defaultValue = Random.nextInt(99999999).toString()
+    override def defaultValue = SecureRandomUtil.csprng.nextInt(99999999).toString()
   }
   object mSalt extends MappedString(this, 50)  {
     override def defaultValue = BCrypt.gensalt()
   }
   object mJsonWebToken extends MappedText(this)
+  object mConsumerId extends MappedUUID(this) {
+    override def defaultValue = null
+  }
   
   object mApiStandard extends MappedString(this, 50)
   object mApiVersion extends MappedString(this, 50)
@@ -254,6 +261,7 @@ class MappedConsent extends Consent with LongKeyedMapper[MappedConsent] with IdP
   // The salt to hash with (generated using BCrypt.gensalt)
   override def challenge: String = mChallenge.get
   override def jsonWebToken: String = mJsonWebToken.get
+  override def consumerId: String = mConsumerId.get
   
   override def apiStandard: String = mApiStandard.get
   override def apiVersion: String = mApiVersion.get

@@ -2,9 +2,10 @@ package code.api.util
 
 
 import code.api.util.APIUtil.parseDate
-import code.api.util.ErrorMessages.{InvalidJsonFormat, UserHasMissingRoles, UserNotLoggedIn, UnknownError}
+import code.api.util.ErrorMessages.{InvalidJsonFormat, UnknownError, UserHasMissingRoles, UserNotLoggedIn}
 import net.liftweb.json.JsonDSL._
 import code.api.util.Glossary.{glossaryItems, makeGlossaryItem}
+import code.apicollection.ApiCollection
 import code.dynamicEntity.{DynamicEntityDefinition, DynamicEntityFooBar, DynamicEntityFullBarFields, DynamicEntityIntTypeExample, DynamicEntityStringTypeExample}
 import com.openbankproject.commons.model.enums.{CustomerAttributeType, DynamicEntityFieldType}
 import com.openbankproject.commons.util.ReflectUtils
@@ -23,6 +24,7 @@ object ExampleValue {
 
   val NoDescriptionProvided = "no-description-provided"
   val NoExampleProvided = "no-example-provided"
+  val booleanTrue = "true"
 
   lazy val bankIdGlossary = glossaryItems.find(_.title == "Bank.bank_id").map(_.textDescription)
 
@@ -91,7 +93,7 @@ object ExampleValue {
   lazy val dependentsExample = ConnectorField("1", s"the number of dependents")
   glossaryItems += makeGlossaryItem("Customer.dependents", dependentsExample)
   
-  lazy val kycStatusExample = ConnectorField("true", s"This is boolean to indicate if the cusomter's KYC has been checked.") 
+  lazy val kycStatusExample = ConnectorField(booleanTrue, s"This is boolean to indicate if the cusomter's KYC has been checked.") 
   glossaryItems += makeGlossaryItem("Customer.kycStatus", kycStatusExample)
   
   lazy val urlExample = ConnectorField("http://www.example.com/id-docs/123/image.png", s"The URL ") 
@@ -99,7 +101,13 @@ object ExampleValue {
   
   lazy val customerNumberExample = ConnectorField("5987953", s"The human friendly customer identifier that MUST uniquely identify the Customer at the Bank ID. Customer Number is NOT used in URLs.")
   glossaryItems += makeGlossaryItem("Customer.customerNumber", customerNumberExample)
-
+  
+  lazy val licenseIdExample = ConnectorField("ODbL-1.0", s"")
+  glossaryItems += makeGlossaryItem("License.id", licenseIdExample)
+  
+  lazy val licenseNameExample = ConnectorField("Open Database License", s"")
+  glossaryItems += makeGlossaryItem("License.name", licenseNameExample)
+  
   lazy val customerAttributeIdExample = ConnectorField("7uy8a7e4-6d02-40e3-a129-0b2bf89de8uh", s"Customer attribute id")
   glossaryItems += makeGlossaryItem("Customer.attributeId", customerAttributeIdExample)
   
@@ -144,7 +152,7 @@ object ExampleValue {
   lazy val otherAccountProviderExample = ConnectorField("", s"")//TODO, not sure what is this field for?
   glossaryItems += makeGlossaryItem("Transaction.otherAccountProvider", otherAccountProviderExample)
   
-  lazy val isBeneficiaryExample = ConnectorField("true", s"This is a boolean. True if the originAccount can send money to the Counterparty")
+  lazy val isBeneficiaryExample = ConnectorField(booleanTrue, s"This is a boolean. True if the originAccount can send money to the Counterparty")
   glossaryItems += makeGlossaryItem("Counterparty.isBeneficiary", isBeneficiaryExample)
 
   lazy val counterpartyNameExample = ConnectorField("John Smith Ltd.", s"The name of a Counterparty. Ideally unique for an Account")
@@ -232,6 +240,13 @@ object ExampleValue {
   
   lazy val operationIdExample = ConnectorField("OBPv4.0.0-getBanks", "A uniquely identify the obp endpoint on OBP instance, you can get it from Get Resource endpoints.")
   glossaryItems += makeGlossaryItem("ApiCollectionEndpoint.operationId", operationIdExample)
+
+  lazy val tagNameExample = ConnectorField("BankAccountTag1", "The endpoint tag name")
+  glossaryItems += makeGlossaryItem("EndpointTag.tagName", tagNameExample)
+  
+  lazy val endpointTagIdExample = ConnectorField("7uy8a7e4-6d02-40e3-a129-0b2bf89de8uh", "A string that MUST uniquely identify the endpointTag on this OBP instance, can be used in all cache.")
+  glossaryItems += makeGlossaryItem("EndpointTag.endpointTagId", endpointTagIdExample)
+  
   
   lazy val accountTypeExample = ConnectorField("AC","A short code that represents the type of the account as provided by the bank.")
 
@@ -249,6 +264,7 @@ object ExampleValue {
   lazy val transactionCompletedDateExample = ConnectorField("2018-01-28", "The Completed date of a transaction in the format: yyyy-MM-dd")
 
   lazy val dateExample = ConnectorField("2020-01-27", "The Date in the format: yyyy-MM-dd")
+  lazy val dateTimeExample = ConnectorField("2021-04-08T09:12:27Z", "The Date in the format: yyyy-MM-dd'T'HH:mm:ss'Z'")
   lazy val cancelledDateExample = ConnectorField("2020-01-27", "The Cancelled Date in the format: yyyy-MM-dd")
   lazy val dateCancelledExample = cancelledDateExample
   lazy val signedDateExample = ConnectorField("2020-01-27", "The Signed Date in the format: yyyy-MM-dd")
@@ -320,6 +336,12 @@ object ExampleValue {
   
   lazy val keyExample = ConnectorField(s"CustomerNumber", s"This key should be used with Adapter.value together. They are a pair.")
   glossaryItems += makeGlossaryItem("Adapter.key", keyExample)
+  
+  lazy val consumerSecretExample = ConnectorField(s"xwdgylv3vau0n2gkxu1aize4glapftfldp5y1bic", s"This key should be used with Adapter.value together. They are a pair.")
+  glossaryItems += makeGlossaryItem("Customer.secret", consumerSecretExample)  
+  
+  lazy val consumerKeyExample = ConnectorField(s"bwf0ykmwoirip1yjxcn15wnhuyxcziwgtcoaildq", s"This key should be used with Adapter.value together. They are a pair.")
+  glossaryItems += makeGlossaryItem("Customer.key", consumerKeyExample)
   
   lazy val valueExample = ConnectorField(s"${customerNumberExample.value}", s"This key should be used with Adapter.key together. They are a pair.")
   glossaryItems += makeGlossaryItem("Adapter.value", valueExample)
@@ -450,7 +472,7 @@ object ExampleValue {
   lazy val inboundAvroSchemaExample =  ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("DynamicMessageDoc.inboundAvroSchema", inboundAvroSchemaExample)
   
-  lazy val canSeeImagesExample = ConnectorField("true",NoDescriptionProvided)
+  lazy val canSeeImagesExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_images", canSeeImagesExample)
 
   lazy val topConsumersExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -459,10 +481,10 @@ object ExampleValue {
   lazy val smsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("sms", smsExample)
 
-  lazy val maximumResponseTimeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val maximumResponseTimeExample = ConnectorField("60",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("maximum_response_time", maximumResponseTimeExample)
 
-  lazy val cancelledExample = ConnectorField("true",NoDescriptionProvided)
+  lazy val cancelledExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("cancelled", cancelledExample)
 
   lazy val entitlementRequestsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -495,7 +517,7 @@ object ExampleValue {
   lazy val canAddCommentExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_add_comment", canAddCommentExample)
 
-  lazy val frequencyExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val frequencyExample = ConnectorField("5",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("frequency", frequencyExample)
 
   lazy val ordersExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -510,13 +532,13 @@ object ExampleValue {
   lazy val canSeeOtherAccountRoutingSchemeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_other_account_routing_scheme", canSeeOtherAccountRoutingSchemeExample)
 
-  lazy val canDeleteCorporateLocationExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canDeleteCorporateLocationExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_delete_corporate_location", canDeleteCorporateLocationExample)
 
   lazy val fromExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("from", fromExample)
 
-  lazy val httpMethodExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val httpMethodExample = ConnectorField("GET",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("http_method", httpMethodExample)
 
   lazy val developerEmailExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -534,7 +556,7 @@ object ExampleValue {
   lazy val portsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("ports", portsExample)
 
-  lazy val perSecondExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val perSecondExample = ConnectorField("1000",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("per_second", perSecondExample)
 
   lazy val challengeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -543,7 +565,7 @@ object ExampleValue {
   lazy val appNameExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("app_name", appNameExample)
 
-  lazy val executionDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val executionDateExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("execution_date", executionDateExample)
 
   lazy val technologyExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -579,13 +601,13 @@ object ExampleValue {
   lazy val sandboxTanExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("sandbox_tan", sandboxTanExample)
 
-  lazy val corporateLocationExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val corporateLocationExample = ConnectorField("10",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("corporate_location", corporateLocationExample)
 
-  lazy val enabledExample = ConnectorField("true",NoDescriptionProvided)
+  lazy val enabledExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("enabled", enabledExample)
 
-  lazy val durationExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val durationExample = ConnectorField("10",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("duration", durationExample)
 
   lazy val canSeeBankAccountTypeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -603,10 +625,10 @@ object ExampleValue {
   lazy val accountAttributeIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("account_attribute_id", accountAttributeIdExample)
 
-  lazy val closingTimeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val closingTimeExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("closing_time", closingTimeExample)
 
-  lazy val lastFailureDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val lastFailureDateExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("last_failure_date", lastFailureDateExample)
 
   lazy val whereExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -657,7 +679,7 @@ object ExampleValue {
   lazy val creatorExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("creator", creatorExample)
 
-  lazy val activeExample = ConnectorField("true",NoDescriptionProvided)
+  lazy val activeExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("active", activeExample)
 
   lazy val canSeeOtherAccountMetadataExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -744,9 +766,51 @@ object ExampleValue {
   lazy val websiteExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("website", websiteExample)
 
-  lazy val atmIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val atmIdExample = ConnectorField("atme0352a-9a0f-4bfa-b30b-9003aa467f51","A string that MUST uniquely identify the ATM on this OBP instance.")
   glossaryItems += makeGlossaryItem("atm_id", atmIdExample)
 
+  lazy val atmNameExample = ConnectorField("Atm by the Lake","The name of the ATM")
+  glossaryItems += makeGlossaryItem("ATM.name", atmNameExample)
+
+  lazy val supportedCurrenciesExample = ConnectorField("""["EUR","MXN","USD"]""", NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("supported_currencies", supportedCurrenciesExample)
+
+  lazy val supportedLanguagesExample = ConnectorField("""["es","fr","de"]""", NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("supported_languages", supportedCurrenciesExample)
+
+  lazy val atmServicesExample = ConnectorField("""["ATBP","ATBA"]""", NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.services", atmServicesExample)
+  
+  lazy val atmNotesExample = ConnectorField("""["String1","String2"]""", NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.notes", atmNotesExample)
+  
+  lazy val atmLocationCategoriesExample = ConnectorField("""["ATBI","ATBE"]""", NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.location_categories", atmLocationCategoriesExample)
+  
+  lazy val atmMinimumWithdrawalExample = ConnectorField("""5""", "minimum withdrawal at this ATM")
+  glossaryItems += makeGlossaryItem("ATM.minimum_withdrawal", atmMinimumWithdrawalExample)
+  
+  lazy val atmBranchIdentificationExample = ConnectorField(NoExampleProvided, NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.branch_identification", atmBranchIdentificationExample)
+  
+  lazy val siteIdentification = ConnectorField(NoExampleProvided, NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.site_identification", siteIdentification)
+  
+  lazy val atmSiteNameExample = ConnectorField(NoExampleProvided, NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.site_name", atmSiteNameExample)
+  
+  lazy val cashWithdrawalNationalFeeExample = ConnectorField(NoExampleProvided, NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.cash_withdrawal_national_fee", cashWithdrawalNationalFeeExample)
+  
+  lazy val cashWithdrawalInternationalFeeExample = ConnectorField(NoExampleProvided, NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.cash_withdrawal_international_fee", cashWithdrawalInternationalFeeExample)
+  
+  lazy val balanceInquiryFeeExample = ConnectorField(NoExampleProvided, NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.balance_inquiry_fee", balanceInquiryFeeExample)
+  
+  lazy val accessibilityFeaturesExample = ConnectorField("""["ATAC","ATAD"]""", NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("accessibility_features", accessibilityFeaturesExample)
+  
   lazy val canSeeOtherBankRoutingSchemeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_other_bank_routing_scheme", canSeeOtherBankRoutingSchemeExample)
 
@@ -762,7 +826,7 @@ object ExampleValue {
   lazy val relatesToKycCheckIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("relates_to_kyc_check_id", relatesToKycCheckIdExample)
 
-  lazy val productCodeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val productCodeExample = ConnectorField("1234", NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("product_code", productCodeExample)
 
   lazy val imageUrlExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -801,7 +865,7 @@ object ExampleValue {
   lazy val canSeeTransactionFinishDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_transaction_finish_date", canSeeTransactionFinishDateExample)
 
-  lazy val satisfiedExample = ConnectorField("true",NoDescriptionProvided)
+  lazy val satisfiedExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("satisfied", satisfiedExample)
 
   lazy val canSeeOtherAccountIbanExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -988,7 +1052,7 @@ object ExampleValue {
   glossaryItems += makeGlossaryItem("minimum_response_time", minimumResponseTimeExample)
 
   lazy val locatedAtExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
-  glossaryItems += makeGlossaryItem("located_at", locatedAtExample)
+  glossaryItems += makeGlossaryItem("ATM.located_at", locatedAtExample)
 
   lazy val requireScopesForAllRolesExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("require_scopes_for_all_roles", requireScopesForAllRolesExample)
@@ -1137,8 +1201,8 @@ object ExampleValue {
   lazy val productAttributeIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("product_attribute_id", productAttributeIdExample)
 
-  lazy val isSystemExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
-  glossaryItems += makeGlossaryItem("is_system", isSystemExample)
+  lazy val isSystemExample = ConnectorField("true", "If the view is the system level, then it is true")
+  glossaryItems += makeGlossaryItem("view.is_system", isSystemExample)
 
   lazy val detailsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("details", detailsExample)
@@ -1164,8 +1228,8 @@ object ExampleValue {
   lazy val roleNameExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("role_name", roleNameExample)
 
-  lazy val refundExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
-  glossaryItems += makeGlossaryItem("refund", refundExample)
+  lazy val termsAndConditionsUrlExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("terms_and_conditions_url_example", termsAndConditionsUrlExample)
 
   lazy val canAddUrlExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_add_url", canAddUrlExample)
@@ -1210,7 +1274,7 @@ object ExampleValue {
   glossaryItems += makeGlossaryItem("card_description", cardDescriptionExample)
 
   lazy val moreInfoExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
-  glossaryItems += makeGlossaryItem("more_info", moreInfoExample)
+  glossaryItems += makeGlossaryItem("ATM.more_info", moreInfoExample)
 
   lazy val fieldExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("field", fieldExample)
@@ -1236,9 +1300,6 @@ object ExampleValue {
   lazy val chargeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("charge", chargeExample)
 
-  lazy val connectorExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
-  glossaryItems += makeGlossaryItem("connector", connectorExample)
-
   lazy val kycDocumentIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("kyc_document_id", kycDocumentIdExample)
 
@@ -1248,7 +1309,7 @@ object ExampleValue {
   lazy val webUiPropsIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("web_ui_props_id", webUiPropsIdExample)
 
-  lazy val providerExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val providerExample = ConnectorField("ETHEREUM","the provider name ")
   glossaryItems += makeGlossaryItem("provider", providerExample)
 
   lazy val canSeePhysicalLocationExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1311,6 +1372,9 @@ object ExampleValue {
   lazy val parentProductCodeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("parent_product_code", parentProductCodeExample)
 
+  lazy val productNameExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("product_name", productNameExample)
+
   lazy val numberOfCheckbooksExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("number_of_checkbooks", numberOfCheckbooksExample)
 
@@ -1368,7 +1432,7 @@ object ExampleValue {
   lazy val isFirehoseExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("is_firehose", isFirehoseExample)
 
-  lazy val okExample = ConnectorField("true",NoDescriptionProvided)
+  lazy val okExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("ok", okExample)
 
   lazy val bankRoutingExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1392,8 +1456,8 @@ object ExampleValue {
   lazy val dependentEndpointsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("dependent_endpoints", dependentEndpointsExample)
 
-  lazy val hasDepositCapabilityExample = ConnectorField("true",NoDescriptionProvided)
-  glossaryItems += makeGlossaryItem("has_deposit_capability", hasDepositCapabilityExample)
+  lazy val hasDepositCapabilityExample = ConnectorField(booleanTrue,NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.has_deposit_capability", hasDepositCapabilityExample)
 
   lazy val toCounterpartyExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("to_counterparty", toCounterpartyExample)
@@ -1416,10 +1480,10 @@ object ExampleValue {
   lazy val canSeeCommentsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_comments", canSeeCommentsExample)
 
-  lazy val canEditOwnerCommentExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canEditOwnerCommentExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_edit_owner_comment", canEditOwnerCommentExample)
 
-  lazy val canAddCounterpartyExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canAddCounterpartyExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_add_counterparty", canAddCounterpartyExample)
 
   lazy val markdownExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1446,19 +1510,19 @@ object ExampleValue {
   lazy val accountRoutingExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("account_routing", accountRoutingExample)
 
-  lazy val requestedCurrentRateAmount2Example = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val requestedCurrentRateAmount2Example = ConnectorField("20",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("requested_current_rate_amount2", requestedCurrentRateAmount2Example)
 
   lazy val narrativeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("narrative", narrativeExample)
 
-  lazy val canSeeOtherAccountRoutingAddressExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeOtherAccountRoutingAddressExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_other_account_routing_address", canSeeOtherAccountRoutingAddressExample)
 
   lazy val statusesExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("statuses", statusesExample)
 
-  lazy val callsMadeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val callsMadeExample = ConnectorField("50",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("calls_made", callsMadeExample)
 
   lazy val currentStateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1470,10 +1534,10 @@ object ExampleValue {
   lazy val customersExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("customers", customersExample)
 
-  lazy val scheduledDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val scheduledDateExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("scheduled_date", scheduledDateExample)
 
-  lazy val allowedAttemptsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val allowedAttemptsExample = ConnectorField("5",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("allowed_attempts", allowedAttemptsExample)
 
   lazy val hostedByExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1491,7 +1555,7 @@ object ExampleValue {
   lazy val tuesdayExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("tuesday", tuesdayExample)
 
-  lazy val canQueryAvailableFundsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canQueryAvailableFundsExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_query_available_funds", canQueryAvailableFundsExample)
 
   lazy val otherAccountSecondaryRoutingSchemeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1530,7 +1594,7 @@ object ExampleValue {
   lazy val cardNumberExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("card_number", cardNumberExample)
 
-  lazy val instructedamountExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val instructedamountExample = ConnectorField("100",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("instructedamount", instructedamountExample)
 
   lazy val userCustomerLinkIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1539,14 +1603,17 @@ object ExampleValue {
   lazy val outboundTopicExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("outbound_topic", outboundTopicExample)
 
-  lazy val postCodeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val postCodeExample = ConnectorField("789",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("post_code", postCodeExample)
 
   lazy val superFamilyExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("super_family", superFamilyExample)
 
-  lazy val nameExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val nameExample = ConnectorField("ACCOUNT_MANAGEMENT_FEE",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("name", nameExample)
+
+  lazy val productFeeIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("product_fee_id", nameExample)
 
   lazy val emailAddressExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("email_address", emailAddressExample)
@@ -1563,7 +1630,7 @@ object ExampleValue {
   lazy val roleExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("role", roleExample)
 
-  lazy val requireScopesForListedRolesExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val requireScopesForListedRolesExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("require_scopes_for_listed_roles", requireScopesForListedRolesExample)
 
   lazy val branchTypeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1572,10 +1639,10 @@ object ExampleValue {
   lazy val fullNameExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("full_name", fullNameExample)
 
-  lazy val canCreateDirectDebitExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canCreateDirectDebitExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_create_direct_debit", canCreateDirectDebitExample)
 
-  lazy val futureDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val futureDateExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("future_date", futureDateExample)
 
   lazy val toTransferToAccountExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1590,7 +1657,7 @@ object ExampleValue {
   lazy val documentNumberExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("document_number", documentNumberExample)
 
-  lazy val canSeeOtherAccountNationalIdentifierExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeOtherAccountNationalIdentifierExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_other_account_national_identifier", canSeeOtherAccountNationalIdentifierExample)
 
   lazy val canSeeTransactionStartDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1602,7 +1669,7 @@ object ExampleValue {
   lazy val cacheExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("cache", cacheExample)
 
-  lazy val canSeeBankRoutingAddressExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeBankRoutingAddressExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_bank_routing_address", canSeeBankRoutingAddressExample)
 
   lazy val usersExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1614,7 +1681,7 @@ object ExampleValue {
   lazy val ktyExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("kty", ktyExample)
 
-  lazy val canBeSeenOnViewsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canBeSeenOnViewsExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_be_seen_on_views", canBeSeenOnViewsExample)
 
   lazy val fromPersonExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1626,7 +1693,7 @@ object ExampleValue {
   lazy val createdByUserExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("created_by_user", createdByUserExample)
 
-  lazy val taxNumberExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val taxNumberExample = ConnectorField("456",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("tax_number", taxNumberExample)
 
   lazy val presentExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1635,7 +1702,7 @@ object ExampleValue {
   lazy val metadataExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("metadata", metadataExample)
 
-  lazy val canSeeTransactionAmountExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeTransactionAmountExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_transaction_amount", canSeeTransactionAmountExample)
 
   lazy val methodRoutingIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1653,16 +1720,16 @@ object ExampleValue {
   lazy val bespokeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("bespoke", bespokeExample)
 
-  lazy val codeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val codeExample = ConnectorField("125",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("code", codeExample)
 
-  lazy val countryCodeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val countryCodeExample = ConnectorField("1254",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("country_code", countryCodeExample)
 
-  lazy val canSeeBankAccountCreditLimitExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeBankAccountCreditLimitExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_bank_account_credit_limit", canSeeBankAccountCreditLimitExample)
 
-  lazy val canSeeOtherAccountNumberExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeOtherAccountNumberExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_other_account_number", canSeeOtherAccountNumberExample)
 
   lazy val orderExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1680,10 +1747,10 @@ object ExampleValue {
   lazy val taxResidenceExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("tax_residence", taxResidenceExample)
 
-  lazy val isActiveExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val isActiveExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("is_active", isActiveExample)
 
-  lazy val canSeeBankAccountBankNameExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeBankAccountBankNameExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_bank_account_bank_name", canSeeBankAccountBankNameExample)
 
   lazy val firstNameExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1698,19 +1765,19 @@ object ExampleValue {
   lazy val transactionIdsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("transaction_ids", transactionIdsExample)
 
-  lazy val canSeeBankAccountOwnersExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeBankAccountOwnersExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_bank_account_owners", canSeeBankAccountOwnersExample)
 
-  lazy val actualDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val actualDateExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("actual_date", actualDateExample)
 
   lazy val exampleOutboundMessageExample = ConnectorField("{}","this will the json object")
   glossaryItems += makeGlossaryItem("example_outbound_message", exampleOutboundMessageExample)
 
-  lazy val canDeleteWhereTagExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canDeleteWhereTagExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_delete_where_tag", canDeleteWhereTagExample)
 
-  lazy val canSeeUrlExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeUrlExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_url", canSeeUrlExample)
 
   lazy val versionExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1725,10 +1792,10 @@ object ExampleValue {
   lazy val allowedActionsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("allowed_actions", allowedActionsExample)
 
-  lazy val rankAmount1Example = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val rankAmount1Example = ConnectorField("100",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("rank_amount1", rankAmount1Example)
 
-  lazy val durationTimeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val durationTimeExample = ConnectorField("60",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("duration_time", durationTimeExample)
 
   lazy val noneExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1737,13 +1804,13 @@ object ExampleValue {
   lazy val implementedInVersionExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("implemented_in_version", implementedInVersionExample)
 
-  lazy val canSeeImageUrlExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeImageUrlExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_image_url", canSeeImageUrlExample)
 
   lazy val toTransferToPhoneExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("to_transfer_to_phone", toTransferToPhoneExample)
 
-  lazy val perDayExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val perDayExample = ConnectorField("4000",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("per_day", perDayExample)
 
   lazy val elasticSearchExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1752,7 +1819,7 @@ object ExampleValue {
   lazy val reasonRequestedExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("reason_requested", reasonRequestedExample)
 
-  lazy val perWeekExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val perWeekExample = ConnectorField("50000",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("per_week", perWeekExample)
 
   lazy val productsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1770,7 +1837,7 @@ object ExampleValue {
   lazy val apiVersionExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("api_version", apiVersionExample)
 
-  lazy val perSecondCallLimitExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val perSecondCallLimitExample = ConnectorField("10",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("per_second_call_limit", perSecondCallLimitExample)
 
   lazy val messagesExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1782,19 +1849,19 @@ object ExampleValue {
   lazy val eExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("e", eExample)
 
-  lazy val canSeeCorporateLocationExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeCorporateLocationExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_corporate_location", canSeeCorporateLocationExample)
 
   lazy val userExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("user", userExample)
 
-  lazy val lastLockDateExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val lastLockDateExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("last_lock_date", lastLockDateExample)
 
   lazy val requestedCurrentRateAmount1Example = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("requested_current_rate_amount1", requestedCurrentRateAmount1Example)
 
-  lazy val toCurrencyCodeExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val toCurrencyCodeExample = ConnectorField("EUR",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("to_currency_code", toCurrencyCodeExample)
 
   lazy val dobOfDependantsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1827,10 +1894,10 @@ object ExampleValue {
   lazy val mondayExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("monday", mondayExample)
 
-  lazy val requiredfieldinfoExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val requiredfieldinfoExample = ConnectorField("false",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("requiredfieldinfo", requiredfieldinfoExample)
 
-  lazy val canSeeWhereTagExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeWhereTagExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_where_tag", canSeeWhereTagExample)
 
   lazy val fromDepartmentExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1842,7 +1909,7 @@ object ExampleValue {
   lazy val otherAccountSecondaryRoutingAddressExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("other_account_secondary_routing_address", otherAccountSecondaryRoutingAddressExample)
 
-  lazy val perMonthExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val perMonthExample = ConnectorField("500",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("per_month", perMonthExample)
 
   lazy val inboundTopicExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1899,10 +1966,10 @@ object ExampleValue {
   lazy val toSandboxTanExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("to_sandbox_tan", toSandboxTanExample)
 
-  lazy val canAddTagExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canAddTagExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_add_tag", canAddTagExample)
 
-  lazy val canSeeBankAccountLabelExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeBankAccountLabelExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_bank_account_label", canSeeBankAccountLabelExample)
 
   lazy val serviceAvailableExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1926,7 +1993,7 @@ object ExampleValue {
   lazy val driveUpExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("drive_up", driveUpExample)
 
-  lazy val canAddMoreInfoExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canAddMoreInfoExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_add_more_info", canAddMoreInfoExample)
 
   lazy val detailExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1938,13 +2005,13 @@ object ExampleValue {
   lazy val transactionRequestTypesExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("transaction_request_types", transactionRequestTypesExample)
 
-  lazy val canAddImageUrlExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canAddImageUrlExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_add_image_url", canAddImageUrlExample)
 
   lazy val jwksUrisExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("jwks_uris", jwksUrisExample)
 
-  lazy val canSeeOtherAccountSwiftBicExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeOtherAccountSwiftBicExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_other_account_swift_bic", canSeeOtherAccountSwiftBicExample)
 
   lazy val staffUserIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1956,7 +2023,7 @@ object ExampleValue {
   lazy val validFromExample = ConnectorField("2020-01-27",NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("valid_from", validFromExample)
 
-  lazy val canDeleteImageExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canDeleteImageExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_delete_image", canDeleteImageExample)
 
   lazy val toExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
@@ -1968,26 +2035,26 @@ object ExampleValue {
   lazy val productAttributesExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("product_attributes", productAttributesExample)
 
-  lazy val canSeeTransactionDescriptionExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeTransactionDescriptionExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_transaction_description", canSeeTransactionDescriptionExample)
 
   lazy val faceImageExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("face_image", faceImageExample)
 
-  lazy val canSeeBankAccountNumberExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val canSeeBankAccountNumberExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_see_bank_account_number", canSeeBankAccountNumberExample)
 
   lazy val glossaryItemsExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("glossary_items", glossaryItemsExample)
 
-  lazy val isBankIdExactMatchExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val isBankIdExactMatchExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("is_bank_id_exact_match", isBankIdExactMatchExample)
 
-  lazy val isPublicExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val isPublicExample = ConnectorField(booleanTrue,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("is_public", isPublicExample)
 
-  lazy val isAccessibleExample = ConnectorField("true",NoDescriptionProvided)
-  glossaryItems += makeGlossaryItem("is_accessible", isAccessibleExample)
+  lazy val isAccessibleExample = ConnectorField(booleanTrue,NoDescriptionProvided)
+  glossaryItems += makeGlossaryItem("ATM.is_accessible", isAccessibleExample)
 
   lazy val entitlementIdExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("entitlement_id", entitlementIdExample)
@@ -1995,11 +2062,11 @@ object ExampleValue {
   lazy val indexExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("index", indexExample)
 
-  lazy val descriptionExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
+  lazy val descriptionExample = ConnectorField(s"This an optional field. Maximum length is ${ApiCollection.Description.maxLen}. It can be any characters here.","The human readable description here.")
   glossaryItems += makeGlossaryItem("description", descriptionExample)
 
-  lazy val dynamicResourceDocdescriptionExample = ConnectorField("Create one User", "the description for this endpoint")
-  glossaryItems += makeGlossaryItem("DynamicResourceDoc.description", dynamicResourceDocdescriptionExample)
+  lazy val dynamicResourceDocDescriptionExample = ConnectorField("Create one User", "the description for this endpoint")
+  glossaryItems += makeGlossaryItem("DynamicResourceDoc.description", dynamicResourceDocDescriptionExample)
 
   lazy val canDeleteCommentExample = ConnectorField(NoExampleProvided,NoDescriptionProvided)
   glossaryItems += makeGlossaryItem("can_delete_comment", canDeleteCommentExample)
@@ -2150,1060 +2217,78 @@ object ExampleValue {
 
   lazy val dynamicEntityResponseBodyExample = dynamicEntityRequestBodyExample.copy(dynamicEntityId = Some("dynamic-entity-id"), userId =Some(ExampleValue.userIdExample.value))
 
-  private val dynamicEndpointSwagger =
+  val dynamicEndpointSwagger =
     """{
       |  "swagger": "2.0",
       |  "info": {
-      |    "description": "This is a sample server Petstore server.  You can find out more about Swagger at [http://swagger.io](http://swagger.io) or on [irc.freenode.net, #swagger](http://swagger.io/irc/).  For this sample, you can use the api key `special-key` to test the authorization filters.",
-      |    "version": "1.0.5",
-      |    "title": "Swagger Petstore",
-      |    "termsOfService": "http://swagger.io/terms/",
-      |    "contact": {
-      |      "email": "apiteam@swagger.io"
-      |    },
-      |    "license": {
-      |      "name": "Apache 2.0",
-      |      "url": "http://www.apache.org/licenses/LICENSE-2.0.html"
-      |    }
-      |  },
-      |  "host": "petstore.swagger.io",
-      |  "basePath": "/v2",
-      |  "tags": [
-      |    {
-      |      "name": "pet",
-      |      "description": "Everything about your Pets",
-      |      "externalDocs": {
-      |        "description": "Find out more",
-      |        "url": "http://swagger.io"
-      |      }
-      |    },
-      |    {
-      |      "name": "store",
-      |      "description": "Access to Petstore orders"
-      |    },
-      |    {
-      |      "name": "user",
-      |      "description": "Operations about user",
-      |      "externalDocs": {
-      |        "description": "Find out more about our store",
-      |        "url": "http://swagger.io"
-      |      }
-      |    }
-      |  ],
-      |  "schemes": [
-      |    "https",
-      |    "http"
-      |  ],
-      |  "paths": {
-      |    "/pet/{petId}/uploadImage": {
-      |      "post": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "uploads an image",
-      |        "description": "",
-      |        "operationId": "uploadFile",
-      |        "consumes": [
-      |          "multipart/form-data"
-      |        ],
-      |        "produces": [
-      |          "application/json"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "petId",
-      |            "in": "path",
-      |            "description": "ID of pet to update",
-      |            "required": true,
-      |            "type": "integer",
-      |            "format": "int64"
-      |          },
-      |          {
-      |            "name": "additionalMetadata",
-      |            "in": "formData",
-      |            "description": "Additional data to pass to server",
-      |            "required": false,
-      |            "type": "string"
-      |          },
-      |          {
-      |            "name": "file",
-      |            "in": "formData",
-      |            "description": "file to upload",
-      |            "required": false,
-      |            "type": "file"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "$ref": "#/definitions/ApiResponse"
-      |            }
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "petstore_auth": [
-      |              "write:pets",
-      |              "read:pets"
-      |            ]
-      |          }
-      |        ]
-      |      }
-      |    },
-      |    "/pet": {
-      |      "post": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "Add a new pet to the store",
-      |        "description": "",
-      |        "operationId": "addPet",
-      |        "consumes": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "in": "body",
-      |            "name": "body",
-      |            "description": "Pet object that needs to be added to the store",
-      |            "required": true,
-      |            "schema": {
-      |              "$ref": "#/definitions/Pet"
-      |            }
-      |          }
-      |        ],
-      |        "responses": {
-      |          "405": {
-      |            "description": "Invalid input"
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "petstore_auth": [
-      |              "write:pets",
-      |              "read:pets"
-      |            ]
-      |          }
-      |        ]
-      |      },
-      |      "put": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "Update an existing pet",
-      |        "description": "",
-      |        "operationId": "updatePet",
-      |        "consumes": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "in": "body",
-      |            "name": "body",
-      |            "description": "Pet object that needs to be added to the store",
-      |            "required": true,
-      |            "schema": {
-      |              "$ref": "#/definitions/Pet"
-      |            }
-      |          }
-      |        ],
-      |        "responses": {
-      |          "400": {
-      |            "description": "Invalid ID supplied"
-      |          },
-      |          "404": {
-      |            "description": "Pet not found"
-      |          },
-      |          "405": {
-      |            "description": "Validation exception"
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "petstore_auth": [
-      |              "write:pets",
-      |              "read:pets"
-      |            ]
-      |          }
-      |        ]
-      |      }
-      |    },
-      |    "/pet/findByStatus": {
-      |      "get": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "Finds Pets by status",
-      |        "description": "Multiple status values can be provided with comma separated strings",
-      |        "operationId": "findPetsByStatus",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "status",
-      |            "in": "query",
-      |            "description": "Status values that need to be considered for filter",
-      |            "required": true,
-      |            "type": "array",
-      |            "items": {
-      |              "type": "string",
-      |              "enum": [
-      |                "available",
-      |                "pending",
-      |                "sold"
-      |              ],
-      |              "default": "available"
-      |            },
-      |            "collectionFormat": "multi"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "type": "array",
-      |              "items": {
-      |                "$ref": "#/definitions/Pet"
-      |              }
-      |            }
-      |          },
-      |          "400": {
-      |            "description": "Invalid status value"
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "petstore_auth": [
-      |              "write:pets",
-      |              "read:pets"
-      |            ]
-      |          }
-      |        ]
-      |      }
-      |    },
-      |    "/pet/findByTags": {
-      |      "get": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "Finds Pets by tags",
-      |        "description": "Multiple tags can be provided with comma separated strings. Use tag1, tag2, tag3 for testing.",
-      |        "operationId": "findPetsByTags",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "tags",
-      |            "in": "query",
-      |            "description": "Tags to filter by",
-      |            "required": true,
-      |            "type": "array",
-      |            "items": {
-      |              "type": "string"
-      |            },
-      |            "collectionFormat": "multi"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "type": "array",
-      |              "items": {
-      |                "$ref": "#/definitions/Pet"
-      |              }
-      |            }
-      |          },
-      |          "400": {
-      |            "description": "Invalid tag value"
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "petstore_auth": [
-      |              "write:pets",
-      |              "read:pets"
-      |            ]
-      |          }
-      |        ],
-      |        "deprecated": true
-      |      }
-      |    },
-      |    "/pet/{petId}": {
-      |      "get": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "Find pet by ID",
-      |        "description": "Returns a single pet",
-      |        "operationId": "getPetById",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "petId",
-      |            "in": "path",
-      |            "description": "ID of pet to return",
-      |            "required": true,
-      |            "type": "integer",
-      |            "format": "int64"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "$ref": "#/definitions/Pet"
-      |            }
-      |          },
-      |          "400": {
-      |            "description": "Invalid ID supplied"
-      |          },
-      |          "404": {
-      |            "description": "Pet not found"
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "api_key": []
-      |          }
-      |        ]
-      |      },
-      |      "post": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "Updates a pet in the store with form data",
-      |        "description": "",
-      |        "operationId": "updatePetWithForm",
-      |        "consumes": [
-      |          "application/x-www-form-urlencoded"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "petId",
-      |            "in": "path",
-      |            "description": "ID of pet that needs to be updated",
-      |            "required": true,
-      |            "type": "integer",
-      |            "format": "int64"
-      |          },
-      |          {
-      |            "name": "name",
-      |            "in": "formData",
-      |            "description": "Updated name of the pet",
-      |            "required": false,
-      |            "type": "string"
-      |          },
-      |          {
-      |            "name": "status",
-      |            "in": "formData",
-      |            "description": "Updated status of the pet",
-      |            "required": false,
-      |            "type": "string"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "405": {
-      |            "description": "Invalid input"
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "petstore_auth": [
-      |              "write:pets",
-      |              "read:pets"
-      |            ]
-      |          }
-      |        ]
-      |      },
-      |      "delete": {
-      |        "tags": [
-      |          "pet"
-      |        ],
-      |        "summary": "Deletes a pet",
-      |        "description": "",
-      |        "operationId": "deletePet",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "api_key",
-      |            "in": "header",
-      |            "required": false,
-      |            "type": "string"
-      |          },
-      |          {
-      |            "name": "petId",
-      |            "in": "path",
-      |            "description": "Pet id to delete",
-      |            "required": true,
-      |            "type": "integer",
-      |            "format": "int64"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "400": {
-      |            "description": "Invalid ID supplied"
-      |          },
-      |          "404": {
-      |            "description": "Pet not found"
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "petstore_auth": [
-      |              "write:pets",
-      |              "read:pets"
-      |            ]
-      |          }
-      |        ]
-      |      }
-      |    },
-      |    "/store/order": {
-      |      "post": {
-      |        "tags": [
-      |          "store"
-      |        ],
-      |        "summary": "Place an order for a pet",
-      |        "description": "",
-      |        "operationId": "placeOrder",
-      |        "consumes": [
-      |          "application/json"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "in": "body",
-      |            "name": "body",
-      |            "description": "order placed for purchasing the pet",
-      |            "required": true,
-      |            "schema": {
-      |              "$ref": "#/definitions/Order"
-      |            }
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "$ref": "#/definitions/Order"
-      |            }
-      |          },
-      |          "400": {
-      |            "description": "Invalid Order"
-      |          }
-      |        }
-      |      }
-      |    },
-      |    "/store/order/{orderId}": {
-      |      "get": {
-      |        "tags": [
-      |          "store"
-      |        ],
-      |        "summary": "Find purchase order by ID",
-      |        "description": "For valid response try integer IDs with value >= 1 and <= 10. Other values will generated exceptions",
-      |        "operationId": "getOrderById",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "orderId",
-      |            "in": "path",
-      |            "description": "ID of pet that needs to be fetched",
-      |            "required": true,
-      |            "type": "integer",
-      |            "maximum": 10,
-      |            "minimum": 1,
-      |            "format": "int64"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "$ref": "#/definitions/Order"
-      |            }
-      |          },
-      |          "400": {
-      |            "description": "Invalid ID supplied"
-      |          },
-      |          "404": {
-      |            "description": "Order not found"
-      |          }
-      |        }
-      |      },
-      |      "delete": {
-      |        "tags": [
-      |          "store"
-      |        ],
-      |        "summary": "Delete purchase order by ID",
-      |        "description": "For valid response try integer IDs with positive integer value. Negative or non-integer values will generate API errors",
-      |        "operationId": "deleteOrder",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "orderId",
-      |            "in": "path",
-      |            "description": "ID of the order that needs to be deleted",
-      |            "required": true,
-      |            "type": "integer",
-      |            "minimum": 1,
-      |            "format": "int64"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "400": {
-      |            "description": "Invalid ID supplied"
-      |          },
-      |          "404": {
-      |            "description": "Order not found"
-      |          }
-      |        }
-      |      }
-      |    },
-      |    "/store/inventory": {
-      |      "get": {
-      |        "tags": [
-      |          "store"
-      |        ],
-      |        "summary": "Returns pet inventories by status",
-      |        "description": "Returns a map of status codes to quantities",
-      |        "operationId": "getInventory",
-      |        "produces": [
-      |          "application/json"
-      |        ],
-      |        "parameters": [],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "type": "object",
-      |              "additionalProperties": {
-      |                "type": "integer",
-      |                "format": "int32"
-      |              }
-      |            }
-      |          }
-      |        },
-      |        "security": [
-      |          {
-      |            "api_key": []
-      |          }
-      |        ]
-      |      }
-      |    },
-      |    "/user/createWithArray": {
-      |      "post": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Creates list of users with given input array",
-      |        "description": "",
-      |        "operationId": "createUsersWithArrayInput",
-      |        "consumes": [
-      |          "application/json"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "in": "body",
-      |            "name": "body",
-      |            "description": "List of user object",
-      |            "required": true,
-      |            "schema": {
-      |              "type": "array",
-      |              "items": {
-      |                "$ref": "#/definitions/User"
-      |              }
-      |            }
-      |          }
-      |        ],
-      |        "responses": {
-      |          "default": {
-      |            "description": "successful operation"
-      |          }
-      |        }
-      |      }
-      |    },
-      |    "/user/createWithList": {
-      |      "post": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Creates list of users with given input array",
-      |        "description": "",
-      |        "operationId": "createUsersWithListInput",
-      |        "consumes": [
-      |          "application/json"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "in": "body",
-      |            "name": "body",
-      |            "description": "List of user object",
-      |            "required": true,
-      |            "schema": {
-      |              "type": "array",
-      |              "items": {
-      |                "$ref": "#/definitions/User"
-      |              }
-      |            }
-      |          }
-      |        ],
-      |        "responses": {
-      |          "default": {
-      |            "description": "successful operation"
-      |          }
-      |        }
-      |      }
-      |    },
-      |    "/user/{username}": {
-      |      "get": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Get user by user name",
-      |        "description": "",
-      |        "operationId": "getUserByName",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "username",
-      |            "in": "path",
-      |            "description": "The name that needs to be fetched. Use user1 for testing. ",
-      |            "required": true,
-      |            "type": "string"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "schema": {
-      |              "$ref": "#/definitions/User"
-      |            }
-      |          },
-      |          "400": {
-      |            "description": "Invalid username supplied"
-      |          },
-      |          "404": {
-      |            "description": "User not found"
-      |          }
-      |        }
-      |      },
-      |      "put": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Updated user",
-      |        "description": "This can only be done by the logged in user.",
-      |        "operationId": "updateUser",
-      |        "consumes": [
-      |          "application/json"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "username",
-      |            "in": "path",
-      |            "description": "name that need to be updated",
-      |            "required": true,
-      |            "type": "string"
-      |          },
-      |          {
-      |            "in": "body",
-      |            "name": "body",
-      |            "description": "Updated user object",
-      |            "required": true,
-      |            "schema": {
-      |              "$ref": "#/definitions/User"
-      |            }
-      |          }
-      |        ],
-      |        "responses": {
-      |          "400": {
-      |            "description": "Invalid user supplied"
-      |          },
-      |          "404": {
-      |            "description": "User not found"
-      |          }
-      |        }
-      |      },
-      |      "delete": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Delete user",
-      |        "description": "This can only be done by the logged in user.",
-      |        "operationId": "deleteUser",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "username",
-      |            "in": "path",
-      |            "description": "The name that needs to be deleted",
-      |            "required": true,
-      |            "type": "string"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "400": {
-      |            "description": "Invalid username supplied"
-      |          },
-      |          "404": {
-      |            "description": "User not found"
-      |          }
-      |        }
-      |      }
-      |    },
-      |    "/user/login": {
-      |      "get": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Logs user into the system",
-      |        "description": "",
-      |        "operationId": "loginUser",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "name": "username",
-      |            "in": "query",
-      |            "description": "The user name for login",
-      |            "required": true,
-      |            "type": "string"
-      |          },
-      |          {
-      |            "name": "password",
-      |            "in": "query",
-      |            "description": "The password for login in clear text",
-      |            "required": true,
-      |            "type": "string"
-      |          }
-      |        ],
-      |        "responses": {
-      |          "200": {
-      |            "description": "successful operation",
-      |            "headers": {
-      |              "X-Expires-After": {
-      |                "type": "string",
-      |                "format": "date-time",
-      |                "description": "date in UTC when token expires"
-      |              },
-      |              "X-Rate-Limit": {
-      |                "type": "integer",
-      |                "format": "int32",
-      |                "description": "calls per hour allowed by the user"
-      |              }
-      |            },
-      |            "schema": {
-      |              "type": "string"
-      |            }
-      |          },
-      |          "400": {
-      |            "description": "Invalid username/password supplied"
-      |          }
-      |        }
-      |      }
-      |    },
-      |    "/user/logout": {
-      |      "get": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Logs out current logged in user session",
-      |        "description": "",
-      |        "operationId": "logoutUser",
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [],
-      |        "responses": {
-      |          "default": {
-      |            "description": "successful operation"
-      |          }
-      |        }
-      |      }
-      |    },
-      |    "/user": {
-      |      "post": {
-      |        "tags": [
-      |          "user"
-      |        ],
-      |        "summary": "Create user",
-      |        "description": "This can only be done by the logged in user.",
-      |        "operationId": "createUser",
-      |        "consumes": [
-      |          "application/json"
-      |        ],
-      |        "produces": [
-      |          "application/json",
-      |          "application/xml"
-      |        ],
-      |        "parameters": [
-      |          {
-      |            "in": "body",
-      |            "name": "body",
-      |            "description": "Created user object",
-      |            "required": true,
-      |            "schema": {
-      |              "$ref": "#/definitions/User"
-      |            }
-      |          }
-      |        ],
-      |        "responses": {
-      |          "default": {
-      |            "description": "successful operation"
-      |          }
-      |        }
-      |      }
-      |    }
-      |  },
-      |  "securityDefinitions": {
-      |    "api_key": {
-      |      "type": "apiKey",
-      |      "name": "api_key",
-      |      "in": "header"
-      |    },
-      |    "petstore_auth": {
-      |      "type": "oauth2",
-      |      "authorizationUrl": "https://petstore.swagger.io/oauth/authorize",
-      |      "flow": "implicit",
-      |      "scopes": {
-      |        "read:pets": "read your pets",
-      |        "write:pets": "modify pets in your account"
-      |      }
-      |    }
+      |    "title": "Bank Accounts (Dynamic Endpoint)",
+      |    "version": "1.0.0"
       |  },
       |  "definitions": {
-      |    "ApiResponse": {
+      |    "AccountName": {
       |      "type": "object",
       |      "properties": {
-      |        "code": {
-      |          "type": "integer",
-      |          "format": "int32"
-      |        },
-      |        "type": {
-      |          "type": "string"
-      |        },
-      |        "message": {
-      |          "type": "string"
-      |        }
-      |      }
-      |    },
-      |    "Category": {
-      |      "type": "object",
-      |      "properties": {
-      |        "id": {
-      |          "type": "integer",
-      |          "format": "int64"
-      |        },
-      |        "name": {
-      |          "type": "string"
-      |        }
-      |      },
-      |      "xml": {
-      |        "name": "Category"
-      |      }
-      |    },
-      |    "Pet": {
-      |      "type": "object",
-      |      "required": [
-      |        "name",
-      |        "photoUrls"
-      |      ],
-      |      "properties": {
-      |        "id": {
-      |          "type": "integer",
-      |          "format": "int64"
-      |        },
-      |        "category": {
-      |          "$ref": "#/definitions/Category"
-      |        },
       |        "name": {
       |          "type": "string",
-      |          "example": "doggie"
+      |          "example": "family account"
       |        },
-      |        "photoUrls": {
-      |          "type": "array",
-      |          "xml": {
-      |            "wrapped": true
-      |          },
-      |          "items": {
-      |            "type": "string",
-      |            "xml": {
-      |              "name": "photoUrl"
-      |            }
-      |          }
-      |        },
-      |        "tags": {
-      |          "type": "array",
-      |          "xml": {
-      |            "wrapped": true
-      |          },
-      |          "items": {
-      |            "xml": {
-      |              "name": "tag"
-      |            },
-      |            "$ref": "#/definitions/Tag"
-      |          }
-      |        },
-      |        "status": {
-      |          "type": "string",
-      |          "description": "pet status in the store",
-      |          "enum": [
-      |            "available",
-      |            "pending",
-      |            "sold"
-      |          ]
+      |        "balance": {
+      |          "type": "integer",
+      |          "format": "int64",
+      |          "example": 1000.123
       |        }
-      |      },
-      |      "xml": {
-      |        "name": "Pet"
-      |      }
-      |    },
-      |    "Tag": {
-      |      "type": "object",
-      |      "properties": {
-      |        "id": {
-      |          "type": "integer",
-      |          "format": "int64"
-      |        },
-      |        "name": {
-      |          "type": "string"
-      |        }
-      |      },
-      |      "xml": {
-      |        "name": "Tag"
-      |      }
-      |    },
-      |    "Order": {
-      |      "type": "object",
-      |      "properties": {
-      |        "id": {
-      |          "type": "integer",
-      |          "format": "int64"
-      |        },
-      |        "petId": {
-      |          "type": "integer",
-      |          "format": "int64"
-      |        },
-      |        "quantity": {
-      |          "type": "integer",
-      |          "format": "int32"
-      |        },
-      |        "shipDate": {
-      |          "type": "string",
-      |          "format": "date-time"
-      |        },
-      |        "status": {
-      |          "type": "string",
-      |          "description": "Order Status",
-      |          "enum": [
-      |            "placed",
-      |            "approved",
-      |            "delivered"
-      |          ]
-      |        },
-      |        "complete": {
-      |          "type": "boolean"
-      |        }
-      |      },
-      |      "xml": {
-      |        "name": "Order"
-      |      }
-      |    },
-      |    "User": {
-      |      "type": "object",
-      |      "properties": {
-      |        "id": {
-      |          "type": "integer",
-      |          "format": "int64"
-      |        },
-      |        "username": {
-      |          "type": "string"
-      |        },
-      |        "firstName": {
-      |          "type": "string"
-      |        },
-      |        "lastName": {
-      |          "type": "string"
-      |        },
-      |        "email": {
-      |          "type": "string"
-      |        },
-      |        "password": {
-      |          "type": "string"
-      |        },
-      |        "phone": {
-      |          "type": "string"
-      |        },
-      |        "userStatus": {
-      |          "type": "integer",
-      |          "format": "int32",
-      |          "description": "User Status"
-      |        }
-      |      },
-      |      "xml": {
-      |        "name": "User"
       |      }
       |    }
       |  },
-      |  "externalDocs": {
-      |    "description": "Find out more about Swagger",
-      |    "url": "http://swagger.io"
-      |  }
+      |  "paths": {
+      |    "/accounts": {
+      |      "post": {
+      |        "operationId": "POST_account",
+      |        "produces": [
+      |          "application/json"
+      |        ],
+      |        "responses": {
+      |          "201": {
+      |            "description": "Success Response",
+      |            "schema": {
+      |              "$ref": "#/definitions/AccountName"
+      |            }
+      |          }
+      |        },
+      |        "consumes": [
+      |          "application/json"
+      |        ],
+      |        "description": "POST Accounts",
+      |        "summary": "POST Accounts"
+      |      }
+      |    },
+      |    "/accounts/{account_id}": {
+      |      "get": {
+      |        "operationId": "GET_account",
+      |        "produces": [
+      |          "application/json"
+      |        ],
+      |        "responses": {
+      |          "200": {
+      |            "description": "Success Response",
+      |            "schema": {
+      |              "$ref": "#/definitions/AccountName"
+      |            }
+      |          }
+      |        },
+      |        "consumes": [
+      |          "application/json"
+      |        ],
+      |        "description": "Get Bank Account",
+      |        "summary": "Get Bank Account by Id"
+      |      }
+      |    }
+      |  },
+      |  "host": "obp_mock",
+      |  "schemes": [
+      |    "http",
+      |    "https"
+      |  ]
       |}""".stripMargin
   lazy val dynamicEndpointRequestBodyExample: JObject = json.parse(dynamicEndpointSwagger).asInstanceOf[JObject]
   lazy val dynamicEndpointResponseBodyExample: JObject = ("user_id", ExampleValue.userIdExample.value) ~ ("dynamic_endpoint_id", "dynamic-endpoint-id") ~ ("swagger_string", dynamicEndpointRequestBodyExample)
@@ -3212,6 +2297,28 @@ object ExampleValue {
   lazy val dynamicEndpointResponseBodyEmptyExample: JObject = dynamicEndpointResponseBodyExample.transformField {
     case JField("swagger_string", _) => JField("swagger_string", "swagger" -> "2.0")
   }.asInstanceOf[JObject]
+
+  val endpointMappingExample =
+    """{
+      |    "operation_id": "OBPv4.0.0-dynamicEndpoint_POST_account",
+      |    "request_mapping": {
+      |        
+      |    },
+      |    "response_mapping": {
+      |    "name": {
+      |      "entity": "FooBar",
+      |      "field": "name",
+      |      "query": "number"
+      |    },
+      |    "balance": {
+      |      "entity": "FashionBrand",
+      |      "field": "number",
+      |      "query": "number"
+      |    }
+      |  }
+      |}""".stripMargin
+  lazy val endpointMappingRequestBodyExample: JObject = json.parse(endpointMappingExample).asInstanceOf[JObject]
+  lazy val endpointMappingResponseBodyExample: JObject = endpointMappingRequestBodyExample ~ ("endpoint_mapping_id", "b4e0352a-9a0f-4bfa-b30b-9003aa467f50")
 
   /**
    * parse date example value to Date type

@@ -47,9 +47,9 @@ object EntityName {
 object DynamicEntityHelper {
   private val implementedInApiVersion = ApiVersion.v4_0_0
 
-  def definitionsMap: Map[String, DynamicEntityInfo] = NewStyle.function.getDynamicEntities().map(it => (it.entityName, DynamicEntityInfo(it.metadataJson, it.entityName, it.bankId))).toMap
+  def definitionsMap: Map[String, DynamicEntityInfo] = NewStyle.function.getDynamicEntities(None).map(it => (it.entityName, DynamicEntityInfo(it.metadataJson, it.entityName, it.bankId))).toMap
 
-  def dynamicEntityRoles: List[String] = NewStyle.function.getDynamicEntities().flatMap(dEntity => DynamicEntityInfo.roleNames(dEntity.entityName, dEntity.bankId))
+  def dynamicEntityRoles: List[String] = NewStyle.function.getDynamicEntities(None).flatMap(dEntity => DynamicEntityInfo.roleNames(dEntity.entityName, dEntity.bankId))
 
   def doc: ArrayBuffer[ResourceDoc] = {
     val docs = operationToResourceDoc.values.toList
@@ -153,8 +153,9 @@ object DynamicEntityHelper {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTag, apiTagApi, apiTagNewStyle, apiTagDynamicEndpoint, apiTagDynamic),
-      Some(List(dynamicEntityInfo.canGetRole))
+      List(apiTag, apiTagNewStyle, apiTagDynamicEntity, apiTagDynamic),
+      Some(List(dynamicEntityInfo.canGetRole)),
+      createdByBankId= dynamicEntityInfo.bankId
     )
     resourceDocs += (DynamicEntityOperation.GET_ONE, entityName) -> ResourceDoc(
       endPoint,
@@ -179,8 +180,9 @@ object DynamicEntityHelper {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTag, apiTagApi, apiTagNewStyle, apiTagDynamicEndpoint, apiTagDynamic),
-      Some(List(dynamicEntityInfo.canGetRole))
+      List(apiTag, apiTagNewStyle, apiTagDynamicEntity, apiTagDynamic),
+      Some(List(dynamicEntityInfo.canGetRole)),
+      createdByBankId= dynamicEntityInfo.bankId
     )
 
     resourceDocs += (DynamicEntityOperation.CREATE, entityName) -> ResourceDoc(
@@ -208,8 +210,9 @@ object DynamicEntityHelper {
         InvalidJsonFormat,
         UnknownError
       ),
-      List(apiTag, apiTagApi, apiTagNewStyle, apiTagDynamicEndpoint, apiTagDynamic),
-      Some(List(dynamicEntityInfo.canCreateRole))
+      List(apiTag, apiTagNewStyle, apiTagDynamicEntity, apiTagDynamic),
+      Some(List(dynamicEntityInfo.canCreateRole)),
+      createdByBankId= dynamicEntityInfo.bankId
       )
 
     resourceDocs += (DynamicEntityOperation.UPDATE, entityName) -> ResourceDoc(
@@ -237,8 +240,9 @@ object DynamicEntityHelper {
         InvalidJsonFormat,
         UnknownError
       ),
-      List(apiTag, apiTagApi, apiTagNewStyle, apiTagDynamicEndpoint, apiTagDynamic),
-      Some(List(dynamicEntityInfo.canUpdateRole))
+      List(apiTag, apiTagNewStyle, apiTagDynamicEntity, apiTagDynamic),
+      Some(List(dynamicEntityInfo.canUpdateRole)),
+      createdByBankId= dynamicEntityInfo.bankId
     )
 
     resourceDocs += (DynamicEntityOperation.DELETE, entityName) -> ResourceDoc(
@@ -263,8 +267,9 @@ object DynamicEntityHelper {
         InvalidJsonFormat,
         UnknownError
       ),
-      List(apiTag, apiTagApi, apiTagNewStyle, apiTagDynamicEndpoint, apiTagDynamic),
-      Some(List(dynamicEntityInfo.canDeleteRole))
+      List(apiTag, apiTagNewStyle, apiTagDynamicEntity, apiTagDynamic),
+      Some(List(dynamicEntityInfo.canDeleteRole)),
+      createdByBankId= dynamicEntityInfo.bankId
     )
 
     resourceDocs
@@ -290,6 +295,9 @@ object DynamicEntityHelper {
   private def methodRoutingExample(entityName: String) =
     s"""
       |MethodRouting settings example:
+      |
+      |<details>
+      |
       |```
       |{
       |  "is_bank_id_exact_match":false,
@@ -308,6 +316,8 @@ object DynamicEntityHelper {
       |  ]
       |}
       |```
+      |
+      |</details>
       |""".stripMargin
 
 }

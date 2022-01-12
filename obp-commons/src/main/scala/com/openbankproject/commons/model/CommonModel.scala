@@ -71,7 +71,8 @@ case class ProductAttributeCommons(
                                     productAttributeId :String,
                                     name :String,
                                     attributeType : ProductAttributeType.Value,
-                                    value :String) extends ProductAttribute
+                                    value :String, 
+                                    isActive: Option[Boolean] = None) extends ProductAttribute
 object ProductAttributeCommons extends Converter[ProductAttribute, ProductAttributeCommons]
 
 
@@ -250,7 +251,21 @@ case class AtmTCommons(
 
                         locatedAt : Option[String],
                         moreInfo : Option[String],
-                        hasDepositCapability : Option[Boolean]) extends AtmT
+                        hasDepositCapability : Option[Boolean] = None,
+                        supportedLanguages : Option[List[String]] = None,
+                        services: Option[List[String]] = None,
+                        accessibilityFeatures: Option[List[String]] = None,
+                        supportedCurrencies: Option[List[String]] = None,
+                        notes: Option[List[String]] = None,
+                        locationCategories: Option[List[String]] = None,
+                        minimumWithdrawal: Option[String] = None,
+                        branchIdentification: Option[String] = None,
+                        siteIdentification: Option[String] = None,
+                        siteName: Option[String] = None,
+                        cashWithdrawalNationalFee: Option[String] = None,
+                        cashWithdrawalInternationalFee: Option[String] = None,
+                        balanceInquiryFee: Option[String] = None,
+) extends AtmT
 
 object AtmTCommons extends Converter[AtmT, AtmTCommons]
 
@@ -354,6 +369,7 @@ case class ProductCommons(bankId: BankId,
                        family : String,
                        superFamily : String,
                        moreInfoUrl: String,
+                       termsAndConditionsUrl: String,
                        details: String,
                        description: String,
                        meta: Meta) extends Product
@@ -786,7 +802,16 @@ case class Transaction(
   val accountId = thisAccount.accountId
 }
 
-case class UserCommons(userPrimaryKey : UserPrimaryKey, userId: String,idGivenByProvider: String, provider : String, emailAddress : String, name : String, createdByConsentId: Option[String] = None) extends User
+case class UserCommons(userPrimaryKey : UserPrimaryKey, 
+                       userId: String,
+                       idGivenByProvider: String, 
+                       provider : String,
+                       emailAddress : String,
+                       name : String,
+                       createdByConsentId: Option[String] = None,
+                       createdByUserInvitationId: Option[String] = None,
+                       isDeleted: Option[Boolean] = None,
+                       lastMarketingAgreementSignedDate: Option[Date] = None) extends User
 
 case class InternalBasicUser(
   userId:String,

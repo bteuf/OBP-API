@@ -378,7 +378,8 @@ case class OutBoundCreateOrUpdateProductAttribute(outboundAdapterCallContext: Ou
                                                   productAttributeId: Option[String],
                                                   name: String,
                                                   productAttributeType: enums.ProductAttributeType.Value,
-                                                  value: String) extends TopicTrait
+                                                  value: String,
+                                                  isActive: Option[Boolean]) extends TopicTrait
 case class InBoundCreateOrUpdateProductAttribute(inboundAdapterCallContext: InboundAdapterCallContext, status: Status, data: ProductAttributeCommons) extends InBoundTrait[ProductAttributeCommons]
 
 
@@ -977,7 +978,8 @@ case class OutBoundDynamicEntityProcess (outboundAdapterCallContext: OutboundAda
                                          entityName: String,
                                          requestBody: Option[JObject],
                                          entityId: Option[String],
-                                         bankId: Option[String]) extends TopicTrait
+                                         bankId: Option[String],
+                                         queryParameters: Option[Map[String, List[String]]]) extends TopicTrait
 case class InBoundDynamicEntityProcess (inboundAdapterCallContext: InboundAdapterCallContext, status: Status, data: JValue) extends InBoundTrait[JValue]
 
 // because swagger generate not support JValue type, so here supply too xxxDoc TO generate correct request and response body example
@@ -1221,12 +1223,12 @@ case class InBoundCreateOrUpdateBank(status: Status, data: BankCommons) extends 
   override val inboundAdapterCallContext: InboundAdapterCallContext = InboundAdapterCallContext()
 }
 
-case class OutBoundCreateOrUpdateAtm(atm: AtmT) extends TopicTrait
-case class InBoundCreateOrUpdateAtm(status: Status, data: AtmTCommons) extends InBoundTrait[AtmTCommons] {
+case class OutBoundCreateOrUpdateAtmLegacy(atm: AtmT) extends TopicTrait
+case class InBoundCreateOrUpdateAtmLegacy(status: Status, data: AtmTCommons) extends InBoundTrait[AtmTCommons] {
   override val inboundAdapterCallContext: InboundAdapterCallContext = InboundAdapterCallContext()
 }
 
-case class OutBoundCreateOrUpdateProduct(bankId: String, code: String, parentProductCode: Option[String], name: String, category: String, family: String, superFamily: String, moreInfoUrl: String, details: String, description: String, metaLicenceId: String, metaLicenceName: String) extends TopicTrait
+case class OutBoundCreateOrUpdateProduct(bankId: String, code: String, parentProductCode: Option[String], name: String, category: String, family: String, superFamily: String, moreInfoUrl: String, termsAndConditionsUrl: String, details: String, description: String, metaLicenceId: String, metaLicenceName: String) extends TopicTrait
 case class InBoundCreateOrUpdateProduct(status: Status, data: ProductCommons) extends InBoundTrait[ProductCommons] {
   override val inboundAdapterCallContext: InboundAdapterCallContext = InboundAdapterCallContext()
 }

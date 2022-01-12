@@ -12,6 +12,7 @@ object ApiTag {
 
   // Use the *singular* case. for both the variable name and string.
   // e.g. "This call is Payment related"
+  // When using these tags in resource docs, as we now have many APIs, it's best not to have too use too many tags per endpoint.
   val apiTagTransactionRequest = ResourceDocTag("Transaction-Request")
   val apiTagApi = ResourceDocTag("API")
   val apiTagBank = ResourceDocTag("Bank")
@@ -30,8 +31,8 @@ object ApiTag {
   val apiTagTransactionFirehose = ResourceDocTag("Transaction-Firehose")
   val apiTagCounterpartyMetaData = ResourceDocTag("Counterparty-Metadata")
   val apiTagTransactionMetaData = ResourceDocTag("Transaction-Metadata")
-  val apiTagView = ResourceDocTag("View-(Custom)")
-  val apiTagSystemView = ResourceDocTag("View-(System)")
+  val apiTagView = ResourceDocTag("View-Custom")
+  val apiTagSystemView = ResourceDocTag("View-System")
   val apiTagEntitlement = ResourceDocTag("Entitlement")
   val apiTagRole = ResourceDocTag("Role")
   val apiTagScope = ResourceDocTag("Scope")
@@ -40,7 +41,8 @@ object ApiTag {
   val apiTagKyc = ResourceDocTag("KYC")
   val apiTagCustomer = ResourceDocTag("Customer")
   val apiTagOnboarding = ResourceDocTag("Onboarding")
-  val apiTagUser = ResourceDocTag("User")
+  val apiTagUser = ResourceDocTag("User") // Use for User Management / Info APIs
+  val apiTagUserInvitation = ResourceDocTag("User-Invitation") 
   val apiTagMeeting = ResourceDocTag("Customer-Meeting")
   val apiTagExperimental = ResourceDocTag("Experimental")
   val apiTagPerson = ResourceDocTag("Person")
@@ -68,15 +70,20 @@ object ApiTag {
   val apiTagConsent = ResourceDocTag("Consent")
   val apiTagMethodRouting = ResourceDocTag("Method-Routing")
   val apiTagWebUiProps = ResourceDocTag("WebUi-Props")
-  val apiTagManageDynamicEntity = ResourceDocTag("Dynamic-Entity-(Manage)")
-  val apiTagDynamicSwaggerDoc = ResourceDocTag("Dynamic-Swagger-Doc-(Manage)")
-  val apiTagDynamicResourceDoc = ResourceDocTag("Dynamic-Resource-Doc-(Manage)")
-  val apiTagDynamicMessageDoc = ResourceDocTag("Dynamic-Message-Doc-(Manage)")
+  val apiTagEndpointMapping = ResourceDocTag("Endpoint-Mapping")
+
   val apiTagApiCollection = ResourceDocTag("Api-Collection")
+  
+  val apiTagDynamicResourceDoc = ResourceDocTag("Dynamic-Resource-Doc")
+  val apiTagDynamicMessageDoc = ResourceDocTag("Dynamic-Message-Doc")
+
+  val apiTagDAuth = ResourceDocTag("DAuth")
 
   val apiTagDynamic = ResourceDocTag("Dynamic")
   val apiTagDynamicEntity = ResourceDocTag("Dynamic-Entity")
+  val apiTagManageDynamicEntity = ResourceDocTag("Dynamic-Entity-Manage")
   val apiTagDynamicEndpoint = ResourceDocTag("Dynamic-Endpoint")
+  val apiTagManageDynamicEndpoint = ResourceDocTag("Dynamic-Endpoint-Manage")
 
   val apiTagJsonSchemaValidation = ResourceDocTag("JSON-Schema-Validation")
   val apiTagAuthenticationTypeValidation = ResourceDocTag("Authentication-Type-Validation")

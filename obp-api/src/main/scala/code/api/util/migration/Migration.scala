@@ -33,7 +33,9 @@ object Migration extends MdcLoggable {
     val toExecute: Boolean = executeAll || scriptsToExecute.contains(name)
     val isExecuted = MigrationScriptLogProvider.migrationScriptLogProvider.vend.isExecuted(name)
     (toExecute, isExecuted) match {
-      case (true, false) => blockOfCode
+      case (true, false) => 
+        logger.warn(s"Migration.database.$name is started at this instance.")
+        blockOfCode
       case _ => true
     }
   }
@@ -49,6 +51,7 @@ object Migration extends MdcLoggable {
     }
     MigrationScriptLogProvider.migrationScriptLogProvider.vend.saveLog(name, commitId, isSuccessful, startDate, endDate, remark) match {
       case true =>
+        logger.warn(s"Migration.database.$name is executed at this instance.")
       case false =>
         logger.warn(s"Migration.database.$name is executed at this instance but the corresponding log is not saved!!!!!!")
     }
@@ -56,7 +59,7 @@ object Migration extends MdcLoggable {
   
   object database {
     
-    def executeScripts(): Boolean = executeScript {
+    def executeScripts(startedBeforeSchemifier: Boolean): Boolean = executeScript {
       dummyScript()
       populateTableViewDefinition()
       populateTableAccountAccess()
@@ -77,6 +80,15 @@ object Migration extends MdcLoggable {
       alterColumnStatusAtTableMappedConsent()
       alterColumnDetailsAtTableTransactionRequest()
       deleteDuplicatedRowsInTheTableUserAuthContext()
+      populateTheFieldDeletedAtResourceUser(startedBeforeSchemifier)
+      populateTheFieldIsActiveAtProductAttribute(startedBeforeSchemifier)
+      alterColumnUsernameProviderFirstnameAndLastnameAtAuthUser(startedBeforeSchemifier)
+      alterColumnEmailAtResourceUser(startedBeforeSchemifier)
+      alterColumnNameAtProductFee(startedBeforeSchemifier)
+      addFastFirehoseAccountsView(startedBeforeSchemifier)
+      addFastFirehoseAccountsMaterializedView(startedBeforeSchemifier)
+      alterUserAuthContextColumnKeyAndValueLength(startedBeforeSchemifier)
+      dropIndexAtColumnUsernameAtTableAuthUser(startedBeforeSchemifier)
     }
     
     private def dummyScript(): Boolean = {
@@ -230,6 +242,107 @@ object Migration extends MdcLoggable {
       val name = nameOf(deleteDuplicatedRowsInTheTableUserAuthContext)
       runOnce(name) {
         MigrationOfUserAuthContext.removeDuplicates(name)
+      }
+    }
+    private def populateTheFieldDeletedAtResourceUser(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.populateTheFieldDeletedAtResourceUser(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(populateTheFieldDeletedAtResourceUser(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfResourceUser.populateNewFieldIsDeleted(name)
+        }
+      }
+    }
+    private def populateTheFieldIsActiveAtProductAttribute(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.populateTheFieldIsActiveAtProductAttribute(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(populateTheFieldIsActiveAtProductAttribute(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfProductAttribute.populateTheFieldIsActive(name)
+        }
+      }
+    }
+    private def alterColumnUsernameProviderFirstnameAndLastnameAtAuthUser(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.alterColumnUsernameProviderFirstnameAndLastnameAtAuthUser(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(alterColumnUsernameProviderFirstnameAndLastnameAtAuthUser(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfAuthUser.alterColumnUsernameProviderEmailFirstnameAndLastname(name)
+        }
+      }
+    }
+    private def alterColumnEmailAtResourceUser(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.alterColumnEmailAtResourceUser(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(alterColumnEmailAtResourceUser(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfResourceUser.alterColumnEmail(name)
+        }
+      }
+    }
+    private def alterColumnNameAtProductFee(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.alterColumnNameAtProductFee(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(alterColumnNameAtProductFee(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfProductFee.alterColumnProductFeeName(name)
+        }
+      }
+    }
+    private def addFastFirehoseAccountsView(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.addfastFirehoseAccountsView(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(addFastFirehoseAccountsView(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfFastFireHoseView.addFastFireHoseView(name)
+        }
+      }
+    }
+    
+    private def addFastFirehoseAccountsMaterializedView(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.addfastFirehoseAccountsMaterializedView(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(addFastFirehoseAccountsMaterializedView(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfFastFireHoseMaterializedView.addFastFireHoseMaterializedView(name)
+        }
+      }
+    }
+    
+    private def alterUserAuthContextColumnKeyAndValueLength(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.alterUserAuthContextColumnKeyAndValueLength(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(alterUserAuthContextColumnKeyAndValueLength(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfUserAuthContextFieldLength.alterColumnKeyAndValueLength(name)
+        }
+      }
+    }    
+    private def dropIndexAtColumnUsernameAtTableAuthUser(startedBeforeSchemifier: Boolean): Boolean = {
+      if(startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.dropIndexAtColumnUsernameAtTableAuthUser(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(dropIndexAtColumnUsernameAtTableAuthUser(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfAuthUser.dropIndexAtColumnUsername(name)
+        }
       }
     }
     

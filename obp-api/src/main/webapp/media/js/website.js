@@ -10,6 +10,33 @@ $(window).resize(function() {
 	}
 });
 
+$(function() {
+	toastr.options = {
+		"closeButton": true,
+		"debug": false,
+		"newestOnTop": false,
+		"progressBar": false,
+		"positionClass": "toast-top-right",
+		"preventDuplicates": false,
+		"onclick": null,
+		"showDuration": 0,
+		"hideDuration": 0,
+		"timeOut": 0,
+		"extendedTimeOut": 0,
+		"showEasing": "swing",
+		"hideEasing": "linear",
+		"showMethod": "fadeIn",
+		"hideMethod": "fadeOut",
+		"tapToDismiss": false
+	};
+	if(notice = $("#lift__noticesContainer___error").text()) {
+		toastr.error(notice, "Error. ")
+	}
+	else if(notice = $("#lift__noticesContainer__").text()) {
+		toastr.success(notice, "Success. ")
+	}
+});
+
 function checkclick(){
 	if($("#agree").is(':checked') ){
 		$("#agree").attr("checked","unchecked");
@@ -92,9 +119,6 @@ $(document).ready(function() {
 		$("#small-nav-log-on-button").css("width","63px");
 		$("#small-screen-navbar #small-nav-log-on-button").css("width","63px");
 	}
-	
-	$(".main-support-item .support-platform-link").text("chat.openbankproject.com");
-	
 	
 	var htmlTitle = $(document).find("title").text();
 
@@ -315,6 +339,13 @@ $(document).ready(function() {
 		$('#register-consumer-input #app-request_uri').addClass("error-border")
 	} else{
 		consumerRegistrationAppRequestUriError.parent().addClass('hide');
+	}
+	
+	var dataAreaErrors = $('#data-area-input #data-area-errors');
+	if (dataAreaErrors.length > 0 && dataAreaErrors.html().length > 0) {
+		dataAreaErrors.parent().removeClass('hide');
+	} else{
+		dataAreaErrors.parent().addClass('hide');
 	}
 
 	{

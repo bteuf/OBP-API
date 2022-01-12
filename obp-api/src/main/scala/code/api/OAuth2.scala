@@ -76,6 +76,8 @@ object OAuth2Login extends RestHelper with MdcLoggable {
           Google.applyRules(value, cc)
         } else if (Yahoo.isIssuer(value)) {
           Yahoo.applyRules(value, cc)
+        } else if (Azure.isIssuer(value)) {
+          Azure.applyRules(value, cc)
         } else {
           Hydra.applyRules(value, cc)
         }
@@ -94,6 +96,8 @@ object OAuth2Login extends RestHelper with MdcLoggable {
           Google.applyRulesFuture(value, cc)
         } else if (Yahoo.isIssuer(value)) {
           Yahoo.applyRulesFuture(value, cc)
+        } else if (Azure.isIssuer(value)) {
+          Azure.applyRulesFuture(value, cc)
         } else {
           Hydra.applyRulesFuture(value, cc)
         }
@@ -154,6 +158,8 @@ object OAuth2Login extends RestHelper with MdcLoggable {
             hydraAdmin.deleteOAuth2Client(clientId)
             hydraAdmin.createOAuth2Client(oAuth2Client)
           } else if(stringNotEq(certInConsumer, cert)) {
+            logger.debug("Cert in Consumer: " + certInConsumer)
+            logger.debug("Cert in Request: " + cert)
             return (Failure(Oauth2TokenMatchCertificateFail), Some(cc.copy(consumer = Failure(Oauth2TokenMatchCertificateFail))))
           }
         }
@@ -279,7 +285,10 @@ object OAuth2Login extends RestHelper with MdcLoggable {
           None,
           name = getClaim(name = "given_name", idToken = idToken).orElse(Some(subject)),
           email = getClaim(name = "email", idToken = idToken),
-          userId = None
+          userId = None,
+          createdByUserInvitationId = None,
+          company = None,
+          lastMarketingAgreementSignedDate = None
         )
       }
     }
@@ -391,6 +400,18 @@ object OAuth2Login extends RestHelper with MdcLoggable {
     override def wellKnownOpenidConfiguration: URI = new URI("https://login.yahoo.com/.well-known/openid-configuration")
     override def urlOfJwkSets: Box[String] = checkUrlOfJwkSets(identityProvider = yahoo)
     def isIssuer(jwt: String): Boolean = isIssuer(jwtToken=jwt, identityProvider = yahoo)
+  }  
+  
+  object Azure extends OAuth2Util {
+    val microsoft = "microsoft"
+    /**
+      * OpenID Connect Discovery.
+      * Yahoo exposes OpenID Connect discovery documents ( https://YOUR_DOMAIN/.well-known/openid-configuration ). 
+      * These can be used to automatically configure applications.
+      */
+    override def wellKnownOpenidConfiguration: URI = new URI("https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration")
+    override def urlOfJwkSets: Box[String] = checkUrlOfJwkSets(identityProvider = microsoft)
+    def isIssuer(jwt: String): Boolean = isIssuer(jwtToken=jwt, identityProvider = microsoft)
   }
 
 }

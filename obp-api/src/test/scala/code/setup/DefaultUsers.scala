@@ -2,7 +2,7 @@ package code.setup
 
 import java.util.UUID
 
-import code.api.GatewayLogin
+import code.api.{Constant, GatewayLogin}
 import code.api.util.APIUtil
 import code.api.util.APIUtil.OAuth.{Consumer, Token}
 import code.api.util.ErrorMessages._
@@ -41,13 +41,13 @@ trait DefaultUsers {
   lazy val tokenDuration = weeks(expiration)
   
   // Create resource user, need provider 
-  val defaultProvider = APIUtil.getPropsValue("hostname", "")
+  val defaultProvider = Constant.HostName
   
   // create some resource user for test purposes
-  lazy val resourceUser1 = UserX.createResourceUser(defaultProvider, None, None, None, None, userId).openOrThrowException(attemptedToOpenAnEmptyBox)
-  lazy val resourceUser2 = UserX.createResourceUser(defaultProvider, None, None, None, None, None).openOrThrowException(attemptedToOpenAnEmptyBox)
-  lazy val resourceUser3 = UserX.createResourceUser(defaultProvider, None, None, None, None, None).openOrThrowException(attemptedToOpenAnEmptyBox)
-  lazy val resourceUser4 = UserX.createResourceUser(GatewayLogin.gateway, Some("simonr"), Some("simonr"), None, None, None).openOrThrowException(attemptedToOpenAnEmptyBox)
+  lazy val resourceUser1 = UserX.createResourceUser(defaultProvider, None, None, None, None, userId, None).openOrThrowException(attemptedToOpenAnEmptyBox)
+  lazy val resourceUser2 = UserX.createResourceUser(defaultProvider, None, None, None, None, None, None).openOrThrowException(attemptedToOpenAnEmptyBox)
+  lazy val resourceUser3 = UserX.createResourceUser(defaultProvider, None, None, None, None, None, None).openOrThrowException(attemptedToOpenAnEmptyBox)
+  lazy val resourceUser4 = UserX.createResourceUser(GatewayLogin.gateway, Some("simonr"), Some("simonr"), None, None, None, None).openOrThrowException(attemptedToOpenAnEmptyBox)
 
   // create the tokens in database, we only need token-key and token-secret
   lazy val testToken1 = Tokens.tokens.vend.createToken(

@@ -26,6 +26,8 @@ TESOBE (http://www.tesobe.com/)
 
 package com.openbankproject.commons.model
 
+import java.util.Date
+
 /**
  * An O-R mapped "User" class that includes first name, last name, password
   *
@@ -62,8 +64,11 @@ trait User {
   
   //this will be consentId which create the user, if the user is created by obp or other approaches, it will be None. 
   def createdByConsentId: Option[String]
+  def createdByUserInvitationId: Option[String]
   def isOriginalUser  = createdByConsentId.isEmpty
   def isConsentUser  = createdByConsentId.nonEmpty
+  def isDeleted: Option[Boolean]
+  def lastMarketingAgreementSignedDate: Option[Date]
 }
 
 case class UserPrimaryKey(val value : Long) {

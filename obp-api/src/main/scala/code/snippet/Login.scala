@@ -30,21 +30,29 @@ package code.snippet
 import code.api.OpenIdConnectConfig
 import code.api.util.{APIUtil, CustomJsonFormats}
 import code.model.dataAccess.{Admin, AuthUser}
+import code.snippet.OpenidConnectInvoke.openIDConnect1IsNotSet
 import net.liftweb.http.{S, SHtml}
 import net.liftweb.util.Helpers._
 import net.liftweb.util.CssSel
 import code.webuiprops.MappedWebUiPropsProvider.getWebUiPropsValue
+import net.liftweb.http.js.JsCmds
+import net.liftweb.http.js.JsCmds.Noop
 
 import scala.xml.NodeSeq
 
 class Login {
 
   def loggedIn = {
-    if(!AuthUser.loggedIn_?){
+    if(!AuthUser.loggedIn_?) {
       "*" #> NodeSeq.Empty
-    }else{
+    } else {
       ".logout [href]" #> {
-        AuthUser.logoutPath.foldLeft("")(_ + "/" + _)
+        if(APIUtil.getPropsAsBoolValue("sso.enabled", false)) {
+          val apiExplorerUrl = getWebUiPropsValue("webui_api_explorer_url", "http://localhost:8082")
+          apiExplorerUrl + "/obp-api-logout"
+        } else {
+          AuthUser.logoutPath.foldLeft("")(_ + "/" + _)
+        }
       } &
       "#loggedIn-username *" #> AuthUser.getCurrentUserUsername
     }
@@ -89,8 +97,10 @@ class Login {
   // For instance we can use it to display example login on a sandbox
     def customiseLogin : CssSel = {
       val specialLoginInstructions  = scala.xml.Unparsed(getWebUiPropsValue("webui_login_page_special_instructions", ""))
+      val LoginInstructionTitle = scala.xml.Unparsed(getWebUiPropsValue("webui_login_page_instruction_title", "Log on to the Open Bank Project API"))
       // In case we use Extraction.decompose
       implicit val formats = CustomJsonFormats.formats
+      "#login-instruction-title *" #> LoginInstructionTitle &
       "#login-special-instructions *" #> specialLoginInstructions &
       "#brand [value]" #> activeBrand
     }

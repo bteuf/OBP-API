@@ -4,8 +4,8 @@ import java.net.{Socket, SocketException}
 import java.util.UUID.randomUUID
 import java.util.{Date, GregorianCalendar}
 
-import code.api.util.{APIUtil, CustomJsonFormats}
-import code.api.APIFailureNewStyle
+import code.api.util.{APIUtil, CallContext, CallContextLight, CustomJsonFormats}
+import code.api.{APIFailureNewStyle, Constant}
 import code.api.util.APIUtil.fullBoxOrException
 import code.customer.internalMapping.MappedCustomerIdMappingProvider
 import code.model.dataAccess.internalMapping.MappedAccountIdMappingProvider
@@ -15,11 +15,12 @@ import net.liftweb.json.JsonAST._
 import net.liftweb.json.{DateFormat, Formats}
 import org.apache.commons.lang3.StringUtils
 import com.openbankproject.commons.ExecutionContext.Implicits.global
-import com.openbankproject.commons.model.{AccountBalance, AccountHeld, AccountId, CoreAccount, Customer, CustomerId}
+import com.openbankproject.commons.model.{AccountBalance, AccountBalances, AccountHeld, AccountId, CoreAccount, Customer, CustomerId}
 import com.openbankproject.commons.util.{ReflectUtils, RequiredFieldValidation, RequiredInfo}
 import com.tesobe.CacheKeyFromArguments
 import net.liftweb.http.S
 import net.liftweb.util.Helpers
+
 import scala.concurrent.Future
 import scala.util.Random
 import scala.reflect.runtime.universe.Type
@@ -109,11 +110,11 @@ object Helper{
     * @return In case the statement is false the function returns Future[Failure(failMsg)].
     *         Otherwise returns Future[Full()].
     */
-  def booleanToFuture(failMsg: String, failCode: Int = 400)(statement: => Boolean): Future[Box[Unit]] = {
+  def booleanToFuture(failMsg: String, failCode: Int = 400, cc: Option[CallContext])(statement: => Boolean): Future[Box[Unit]] = {
     Future{
       booleanToBox(statement)
     } map {
-      x => fullBoxOrException(x ~> APIFailureNewStyle(failMsg, failCode))
+      x => fullBoxOrException(x ~> APIFailureNewStyle(failMsg, failCode, cc.map(_.toLight)))
     }
   }
   /**
@@ -277,7 +278,7 @@ object Helper{
   }
 
   def getHostname(): String = {
-    APIUtil.getPropsValue("hostname", "") match {
+    Constant.HostName match {
       case s: String if s.nonEmpty => s.split(":").lift(1) match {
         case Some(s) => s.replaceAll("\\/", "").replaceAll("\\.", "-")
         case None => "unknown"
@@ -414,6 +415,7 @@ object Helper{
         (fieldName.equalsIgnoreCase("accountId") && fieldType =:= typeOf[String])||
         (ownerType <:< typeOf[CoreAccount] && fieldName.equalsIgnoreCase("id") && fieldType =:= typeOf[String])||
         (ownerType <:< typeOf[AccountBalance] && fieldName.equalsIgnoreCase("id") && fieldType =:= typeOf[String])||
+        (ownerType <:< typeOf[AccountBalances] && fieldName.equalsIgnoreCase("id") && fieldType =:= typeOf[String])||
         (ownerType <:< typeOf[AccountHeld] && fieldName.equalsIgnoreCase("id") && fieldType =:= typeOf[String])
     }
 

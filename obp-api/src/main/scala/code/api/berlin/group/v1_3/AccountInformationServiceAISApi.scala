@@ -10,9 +10,10 @@ import code.api.util.APIUtil.{passesPsd2Aisp, _}
 import code.api.util.ApiTag._
 import code.api.util.ErrorMessages._
 import code.api.util.NewStyle.HttpCode
-import code.api.util.{APIUtil, ApiTag, Consent, ExampleValue, NewStyle}
+import code.api.util.{APIUtil, ApiTag, CallContext, Consent, ExampleValue, NewStyle}
 import code.bankconnectors.Connector
 import code.consent.{ConsentStatus, Consents}
+import code.context.{ConsentAuthContextProvider, UserAuthContextProvider}
 import code.model
 import code.model._
 import code.util.Helper
@@ -61,9 +62,11 @@ object APIMethods_AccountInformationServiceAISApi extends RestHelper {
     }.toList
 
 
-    private def checkAccountAccess(viewId: ViewId, u: User, account: BankAccount) = {
-      Helper.booleanToFuture(failMsg = NoViewReadAccountsBerlinGroup + " userId : " + u.userId + ". account : " + account.accountId, 403) {
-        u.hasViewAccess(BankIdAccountId(account.bankId, account.accountId), viewId)
+    private def checkAccountAccess(viewId: ViewId, u: User, account: BankAccount, callContext: Option[CallContext]) = {
+      Future {
+        Helper.booleanToBox(u.hasViewAccess(BankIdAccountId(account.bankId, account.accountId), viewId))
+      } map {
+        unboxFullOrFail(_, callContext, NoViewReadAccountsBerlinGroup + " userId : " + u.userId + ". account : " + account.accountId, 403)
       }
     }
             
@@ -129,7 +132,7 @@ As a last option, an ASPSP might in addition accept a command with access rights
        case "consents" :: Nil JsonPost json -> _  =>  {
          cc =>
            for {
-             (consumer, callContext) <- applicationAccess(cc)
+             (_, callContext) <- applicationAccess(cc)
              _ <- passesPsd2Aisp(callContext)
              createdByUser: Option[User] <- callContext.map(_.user).getOrElse(Empty) match {
                case Full(user) => Future(Some(user))
@@ -140,11 +143,11 @@ As a last option, an ASPSP might in addition accept a command with access rights
                json.extract[PostConsentJson]
              }
 
-             _ <- Helper.booleanToFuture(failMsg = FrequencyPerDayError) {
+             _ <- Helper.booleanToFuture(failMsg = FrequencyPerDayError, cc=callContext) {
                consentJson.frequencyPerDay > 0
              }
 
-             _ <- Helper.booleanToFuture(failMsg = FrequencyPerDayMustBeOneError) {
+             _ <- Helper.booleanToFuture(failMsg = FrequencyPerDayMustBeOneError, cc=callContext) {
                consentJson.recurringIndicator == true ||
                  (consentJson.recurringIndicator == false && consentJson.frequencyPerDay == 1)
              }
@@ -158,6 +161,7 @@ As a last option, an ASPSP might in addition accept a command with access rights
              
              createdConsent <- Future(Consents.consentProvider.vend.createBerlinGroupConsent(
                createdByUser,
+               callContext.flatMap(_.consumer),
                recurringIndicator = consentJson.recurringIndicator,
                validUntil = validUntil,
                frequencyPerDay = consentJson.frequencyPerDay,
@@ -173,7 +177,7 @@ As a last option, an ASPSP might in addition accept a command with access rights
                consentJson,
                createdConsent.secret,
                createdConsent.consentId,
-               consumer.map(_.consumerId.get),
+               callContext.flatMap(_.consumer).map(_.consumerId.get),
                Some(validUntil)
              )
              _ <- Future(Consents.consentProvider.vend.setJsonWebToken(createdConsent.consentId, consentJWT)) map {
@@ -256,33 +260,35 @@ of the PSU at this ASPSP.
 """,
        emptyObjectJson,
        json.parse("""{
-                    |  "accounts":[{
-                    |    "resourceId":"8ca8a7e4-6d02-40e3-a129-0b2bf89de9f0",
-                    |    "iban":"DE91 1000 0000 0123 4567 89",
-                    |    "bban":" 1000 0000 0123 4567 89",
-                    |    "currency":"EUR",
-                    |    "name":"TOM",
-                    |    "product":"AC",
-                    |    "cashAccountType":"AC",
-                    |    "bic":"AAAADEBBXXX",
-                    |    "balances":{
-                    |      "balanceAmount":{
-                    |        "currency":"EUR",
-                    |        "amount":"50.89"
-                    |      },
-                    |      "balanceType":"AC",
-                    |      "lastChangeDateTime":"2020-07-02T10:23:57.81Z",
-                    |      "referenceDate":"2020-07-02",
-                    |      "lastCommittedTransaction":"entryReference of the last commited transaction to support the TPP in identifying whether all PSU transactions are already known."
+                    |  "accounts": [
+                    |    {
+                    |      "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e80f",
+                    |      "iban": "DE2310010010123456789",
+                    |      "currency": "EUR",
+                    |      "product": "Girokonto",
+                    |      "cashAccountType": "CACC",
+                    |      "name": "Main Account",
+                    |      "_links": {
+                    |        "balances": {
+                    |          "href": "/v1/accounts/3dc3d5b3-7023-4848-9853-f5400a64e80f/balances"
+                    |        }
+                    |      }
                     |    },
-                    |    "_links":{
-                    |      "balances":{
-                    |        "href":"/v1.3/accounts/8ca8a7e4-6d02-40e3-a129-0b2bf89de9f0/balances"
+                    |    {
+                    |      "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e81g",
+                    |      "iban": "DE2310010010123456788",
+                    |      "currency": "USD",
+                    |      "product": "Fremdwährungskonto",
+                    |      "cashAccountType": "CACC",
+                    |      "name": "US Dollar Account",
+                    |      "_links": {
+                    |        "balances": {
+                    |          "href": "/v1/accounts/3dc3d5b3-7023-4848-9853-f5400a64e81g/balances"
+                    |        }
                     |      }
                     |    }
-                    |  }]
-                    |}
-                    |""".stripMargin),
+                    |  ]
+                    |}""".stripMargin),
        List(UserNotLoggedIn, UnknownError),
        ApiTag("Account Information Service (AIS)") :: apiTagBerlinGroupM :: Nil
      )
@@ -352,9 +358,10 @@ The account-id is constant at least throughout the lifecycle of a given consent.
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- passesPsd2Aisp(callContext)
             (account: BankAccount, callContext) <- NewStyle.function.getBankAccountByAccountId(accountId, callContext)
-            _ <- checkAccountAccess(ViewId(SYSTEM_READ_BALANCES_BERLIN_GROUP_VIEW_ID), u, account)
+            _ <- checkAccountAccess(ViewId(SYSTEM_READ_BALANCES_BERLIN_GROUP_VIEW_ID), u, account, callContext)
+            (accountBalances, callContext)<- NewStyle.function.getBankAccountBalances(BankIdAccountId(account.bankId,account.accountId), callContext)
           } yield {
-            (JSONFactory_BERLIN_GROUP_1_3.createAccountBalanceJSON(account), HttpCode.`200`(callContext))
+            (JSONFactory_BERLIN_GROUP_1_3.createAccountBalanceJSON(account, accountBalances), HttpCode.`200`(callContext))
            }
          }
        }
@@ -386,25 +393,9 @@ respectively the OAuth2 access token.
         "currency": "EUR",
         "amount": 15000
       },
-      "balances": [
-        {
-          "balanceType": "interimBooked",
-          "balanceAmount": {
-            "currency": "EUR",
-            "amount": 14355.78
-          }
-        },
-        {
-          "balanceType": "nonBilled",
-          "balanceAmount": {
-            "currency": "EUR",
-            "amount": 4175.86
-          }
-        }
-      ],
       "_links": {
-        "transactions": {
-          "href": "/v1/card-accounts/3d9a81b3-a47d-4130-8765-a9c0ff861b99/transactions"
+        "balances": {
+          "href": "/v1/card-accounts/3d9a81b3-a47d-4130-8765-a9c0ff861b99/balances"
         }
       }
     }
@@ -482,9 +473,10 @@ This account-id then can be retrieved by the
              (Full(u), callContext) <- authenticatedAccess(cc)
              _ <- passesPsd2Aisp(callContext)
              (account: BankAccount, callContext) <- NewStyle.function.getBankAccountByAccountId(AccountId(accountId), callContext)
-             _ <- checkAccountAccess(ViewId(SYSTEM_READ_BALANCES_BERLIN_GROUP_VIEW_ID), u, account)
+             _ <- checkAccountAccess(ViewId(SYSTEM_READ_BALANCES_BERLIN_GROUP_VIEW_ID), u, account, callContext)
+             (accountBalances, callContext)<- NewStyle.function.getBankAccountBalances(BankIdAccountId(account.bankId,account.accountId), callContext)
            } yield {
-             (JSONFactory_BERLIN_GROUP_1_3.createCardAccountBalanceJSON(account), HttpCode.`200`(callContext))
+             (JSONFactory_BERLIN_GROUP_1_3.createCardAccountBalanceJSON(account, accountBalances), HttpCode.`200`(callContext))
            }
        }
      }
@@ -938,24 +930,22 @@ Give detailed information about the addressed account together with balance info
             """,
        emptyObjectJson,
        json.parse("""{
-  "cashAccountType" : { },
-  "product" : "product",
-  "resourceId" : "resourceId",
-  "bban" : "BARC12345612345678",
-  "_links" : {
-    "balances" : "/v1.3/payments/sepa-credit-transfers/1234-wertiq-983",
-    "transactions" : "/v1.3/payments/sepa-credit-transfers/1234-wertiq-983"
-  },
-  "usage" : "PRIV",
-  "balances" : "",
-  "iban" : "FR7612345987650123456789014",
-  "linkedAccounts" : "linkedAccounts",
-  "name" : "name",
-  "currency" : "EUR",
-  "details" : "details",
-  "msisdn" : "+49 170 1234567",
-  "bic" : "AAAADEBBXXX",
-  "status" : { }
+  "account": {
+    "resourceId": "3dc3d5b3-7023-4848-9853-f5400a64e80f",
+    "iban": "FR7612345987650123456789014",
+    "currency": "EUR",
+    "product": "Girokonto",
+    "cashAccountType": "CACC",
+    "name": "Main Account",
+    "_links": {
+      "balances": {
+        "href": "/v1/accounts/3dc3d5b3-7023-4848-9853-f5400a64e80f/balances"
+      },
+      "transactions": {
+        "href": "/v1/accounts/3dc3d5b3-7023-4848-9853-f5400a64e80f/transactions"
+      }
+    }
+  }
 }"""),
        List(UserNotLoggedIn, UnknownError),
        ApiTag("Account Information Service (AIS)")  :: apiTagBerlinGroupM :: Nil
@@ -968,7 +958,7 @@ Give detailed information about the addressed account together with balance info
              (Full(u), callContext) <- authenticatedAccess(cc)
              _ <- passesPsd2Aisp(callContext)
              (account: BankAccount, callContext) <- NewStyle.function.getBankAccountByAccountId(AccountId(accountId), callContext)
-             _ <- checkAccountAccess(ViewId(SYSTEM_READ_ACCOUNTS_BERLIN_GROUP_VIEW_ID), u, account)
+             _ <- checkAccountAccess(ViewId(SYSTEM_READ_ACCOUNTS_BERLIN_GROUP_VIEW_ID), u, account, callContext)
            } yield {
              (JSONFactory_BERLIN_GROUP_1_3.createAccountDetailsJson(account, u), callContext)
            }
@@ -990,24 +980,27 @@ respectively the OAuth2 access token.
 """,
        emptyObjectJson,
        json.parse("""{
-  "balances" : "",
-  "product" : "product",
-  "resourceId" : "resourceId",
-  "maskedPan" : "123456xxxxxx1234",
-  "_links" : {
-    "balances" : "/v1.3/payments/sepa-credit-transfers/1234-wertiq-983",
-    "transactions" : "/v1.3/payments/sepa-credit-transfers/1234-wertiq-983"
-  },
-  "usage" : "PRIV",
-  "name" : "name",
-  "creditLimit" : {
-    "amount" : "123",
-    "currency" : "EUR"
-  },
-  "currency" : "EUR",
-  "details" : "details",
-  "status" : { }
-}"""),
+                    |  "cardAccount": {
+                    |    "resourceId": "3d9a81b3-a47d-4130-8765-a9c0ff861b99",
+                    |    "maskedPan": "525412******3241",
+                    |    "currency": "EUR",
+                    |    "name": "Main",
+                    |    "product": "Basic Credit",
+                    |    "status": "enabled",
+                    |    "creditLimit": {
+                    |      "currency": "EUR",
+                    |      "amount": "15000"
+                    |    },
+                    |    "_links": {
+                    |      "balances": {
+                    |        "href": "/v1/card-accounts/3d9a81b3-a47d-4130-8765-a9c0ff861b99/balances"
+                    |      },
+                    |      "transactions": {
+                    |        "href": "/v1/card-accounts/3d9a81b3-a47d-4130-8765-a9c0ff861b99/transactions"
+                    |      }
+                    |    }
+                    |  }
+                    |}""".stripMargin),
        List(UserNotLoggedIn, UnknownError),
        ApiTag("Account Information Service (AIS)") :: Nil
      )
@@ -1019,7 +1012,7 @@ respectively the OAuth2 access token.
              (Full(u), callContext) <- authenticatedAccess(cc)
              _ <- passesPsd2Aisp(callContext)
              (account: BankAccount, callContext) <- NewStyle.function.getBankAccountByAccountId(AccountId(accountId), callContext)
-             _ <- checkAccountAccess(ViewId(SYSTEM_READ_ACCOUNTS_BERLIN_GROUP_VIEW_ID), u, account)
+             _ <- checkAccountAccess(ViewId(SYSTEM_READ_ACCOUNTS_BERLIN_GROUP_VIEW_ID), u, account, callContext)
            } yield {
              (JSONFactory_BERLIN_GROUP_1_3.createCardAccountDetailsJson(account, u), callContext)
            }
@@ -1178,6 +1171,16 @@ Maybe in a later version the access path will change.
              }
              _ <- NewStyle.function.tryons(ConsentUpdateStatusError, 400, callContext) {
                consent.toList.size == 1
+             }
+             _ <- Future {
+               val authContexts = UserAuthContextProvider.userAuthContextProvider.vend.getUserAuthContextsBox(u.userId)
+                 .map(_.map(i => BasicUserAuthContext(i.key, i.value)))
+               ConsentAuthContextProvider.consentAuthContextProvider.vend.createOrUpdateConsentAuthContexts(consentId, authContexts.getOrElse(Nil))
+             } map {
+               unboxFullOrFail(_, callContext, ConsentUserAuthContextCannotBeAdded)
+             }
+             _ <- Future(Consents.consentProvider.vend.updateConsentUser(consentId, u)) map {
+               unboxFullOrFail(_, callContext, ConsentUserCannotBeAdded)
              }
            } yield {
              (createPostConsentResponseJson(consent.toList.head), HttpCode.`200`(callContext))

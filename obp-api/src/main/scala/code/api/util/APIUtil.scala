@@ -33,6 +33,7 @@ import java.nio.charset.Charset
 import java.text.{ParsePosition, SimpleDateFormat}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.{Calendar, Date, UUID}
+
 import code.UserRefreshes.UserRefreshes
 import code.accountholders.AccountHolders
 import code.api.Constant._
@@ -40,14 +41,14 @@ import code.api.OAuthHandshake._
 import code.api.builder.OBP_APIBuilder
 import code.api.oauth1a.Arithmetics
 import code.api.oauth1a.OauthParams._
-import code.api.sandbox.SandboxApiCalls
 import code.api.util.APIUtil.ResourceDoc.{findPathVariableNames, isPathVariable}
+import code.api.util.ApiRole.{canCreateProduct, canCreateProductAtAnyBank}
 import code.api.util.ApiTag.{ResourceDocTag, apiTagBank, apiTagNewStyle}
 import code.api.util.Glossary.GlossaryItem
-import code.api.util.RateLimitingJson.CallLimit
 import code.api.v1_2.ErrorMessage
-import code.api.{DirectLogin, _}
+import code.api.v2_0_0.CreateEntitlementJSON
 import code.api.v4_0_0.dynamic.{DynamicEndpointHelper, DynamicEndpoints, DynamicEntityHelper}
+import code.api.{DirectLogin, _}
 import code.authtypevalidation.AuthenticationTypeValidationProvider
 import code.bankconnectors.Connector
 import code.consumer.Consumers
@@ -56,20 +57,25 @@ import code.entitlement.Entitlement
 import code.metrics._
 import code.model._
 import code.model.dataAccess.AuthUser
-import code.ratelimiting.{RateLimiting, RateLimitingDI}
 import code.sanitycheck.SanityCheck
 import code.scope.Scope
 import code.usercustomerlinks.UserCustomerLink
-import code.util.{Helper, JsonSchemaUtil}
 import code.util.Helper.{MdcLoggable, SILENCE_IS_GOLDEN}
+import code.util.{Helper, JsonSchemaUtil}
 import code.views.Views
 import code.webuiprops.MappedWebUiPropsProvider.getWebUiPropsValue
 import com.alibaba.ttl.internal.javassist.CannotCompileException
 import com.github.dwickern.macros.NameOf.{nameOf, nameOfType}
+import com.openbankproject.commons.ExecutionContext.Implicits.global
 import com.openbankproject.commons.model.enums.StrongCustomerAuthentication.SCA
 import com.openbankproject.commons.model.enums.{PemCertificateRole, StrongCustomerAuthentication}
 import com.openbankproject.commons.model.{Customer, _}
+import com.openbankproject.commons.util.Functions.Implicits._
+import com.openbankproject.commons.util.Functions.Memo
+import com.openbankproject.commons.util._
 import dispatch.url
+import javassist.expr.{ExprEditor, MethodCall}
+import javassist.{ClassPool, LoaderClassPath}
 import net.liftweb.actor.LAFuture
 import net.liftweb.common.{Empty, _}
 import net.liftweb.http._
@@ -77,25 +83,18 @@ import net.liftweb.http.js.JE.JsRaw
 import net.liftweb.http.provider.HTTPParam
 import net.liftweb.http.rest.RestContinuation
 import net.liftweb.json
-import net.liftweb.json.JsonAST.{JField, JObject, JString, JValue}
+import net.liftweb.json.JsonAST.{JField, JNothing, JObject, JString, JValue}
 import net.liftweb.json.JsonParser.ParseException
 import net.liftweb.json._
 import net.liftweb.util.Helpers._
-import net.liftweb.util.{Helpers, LiftFlowOfControlException, Props, StringHelpers, ThreadGlobal}
-
-import scala.collection.JavaConverters._
-import scala.collection.immutable.{List, Nil}
-import scala.collection.mutable.{ArrayBuffer, ListBuffer}
-import com.openbankproject.commons.ExecutionContext.Implicits.global
-import com.openbankproject.commons.util.{ApiVersion, Functions, JsonAble, ReflectUtils, ScannedApiVersion}
-import com.openbankproject.commons.util.Functions.Implicits._
-import com.openbankproject.commons.util.Functions.Memo
-import javassist.{ClassPool, LoaderClassPath}
-import javassist.expr.{ExprEditor, MethodCall}
+import net.liftweb.util._
 import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.StringUtils
 
+import scala.collection.JavaConverters._
+import scala.collection.immutable.{List, Nil}
 import scala.collection.mutable
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.concurrent.Future
 import scala.io.BufferedSource
 import scala.util.Either
@@ -160,6 +159,10 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     }
 
   def hasDirectLoginHeader(authorization: Box[String]): Boolean = hasHeader("DirectLogin", authorization)
+  
+  def has2021DirectLoginHeader(requestHeaders: List[HTTPParam]): Boolean = requestHeaders.find(_.name == "DirectLogin").isDefined
+  
+  def hasAuthorizationHeader(requestHeaders: List[HTTPParam]): Boolean = requestHeaders.find(_.name == "Authorization").isDefined
 
   def hasAnOAuthHeader(authorization: Box[String]): Boolean = hasHeader("OAuth", authorization)
 
@@ -174,6 +177,15 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   def hasAnOAuth2Header(authorization: Box[String]): Boolean = hasHeader("Bearer", authorization)
 
   def hasGatewayHeader(authorization: Box[String]) = hasHeader("GatewayLogin", authorization)
+  
+  /**
+   * The value `DAuth` is in the KEY
+   * DAuth:xxxxx
+   * 
+   * Other types: the `GatewayLogin` is in the VALUE 
+   * Authorization:GatewayLogin token=xxxx
+   */
+  def hasDAuthHeader(requestHeaders: List[HTTPParam]) = requestHeaders.map(_.name).exists(_ ==DAuthHeaderKey)
 
   /**
    * Helper function which tells us does an "Authorization" request header field has the Type of an authentication scheme
@@ -211,6 +223,14 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case _ => None
     }
   }
+
+  def getRequestHeader(name: String, requestHeaders: List[HTTPParam]): String = {
+    requestHeaders.toSet.filter(_.name.toLowerCase == name.toLowerCase).toList match {
+      case x :: Nil => x.values.mkString(";")
+      case _ => ""
+    }
+  }
+  
   def hasConsentJWT(requestHeaders: List[HTTPParam]): Boolean = {
     getConsentJWT(requestHeaders).isDefined
   }
@@ -289,6 +309,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   def logAPICall(date: TimeSpan, duration: Long, rd: Option[ResourceDoc]) = {
     val authorization = S.request.map(_.header("Authorization")).flatten
+    val directLogin: Box[String] = S.request.map(_.header("DirectLogin")).flatten
     if(getPropsAsBoolValue("write_metrics", false)) {
       val user =
         if (hasAnOAuthHeader(authorization)) {
@@ -296,7 +317,14 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
             case Full(u) => Full(u)
             case _ => Empty
           }
-        } else if (getPropsAsBoolValue("allow_direct_login", true) && hasDirectLoginHeader(authorization)) {
+        } // Direct Login
+        else if (getPropsAsBoolValue("allow_direct_login", true) && directLogin.isDefined) {
+          DirectLogin.getUser match {
+            case Full(u) => Full(u)
+            case _ => Empty
+          }
+        } // Direct Login Deprecated
+        else if (getPropsAsBoolValue("allow_direct_login", true) && hasDirectLoginHeader(authorization)) {
           DirectLogin.getUser match {
             case Full(u) => Full(u)
             case _ => Empty
@@ -311,7 +339,14 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
             case Full(c) => Full(c)
             case _ => Empty
           }
-        } else if (getPropsAsBoolValue("allow_direct_login", true) && hasDirectLoginHeader(authorization)) {
+        } // Direct Login 
+        else if (getPropsAsBoolValue("allow_direct_login", true) && directLogin.isDefined) {
+          DirectLogin.getConsumer match {
+            case Full(c) => Full(c)
+            case _ => Empty
+          }
+        } // Direct Login Deprecated
+        else if (getPropsAsBoolValue("allow_direct_login", true) && hasDirectLoginHeader(authorization)) {
           DirectLogin.getConsumer match {
             case Full(c) => Full(c)
             case _ => Empty
@@ -386,7 +421,9 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   private def getHeadersNewStyle(cc: Option[CallContextLight]) = {
     CustomResponseHeaders(
-      getGatewayLoginHeader(cc).list ::: getRateLimitHeadersNewStyle(cc).list ::: getRequestHeadersToMirror(cc).list
+      getGatewayLoginHeader(cc).list ::: 
+        getRateLimitHeadersNewStyle(cc).list ::: 
+        getRequestHeadersToMirror(cc).list
     )
   }
 
@@ -403,6 +440,26 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case _ =>
         CustomResponseHeaders((Nil))
     }
+  }
+  private def getSignRequestHeadersNewStyle(cc: Option[CallContext], httpBody: Box[String]): CustomResponseHeaders = {
+    cc.map { i =>
+      if(JwsUtil.forceVerifyRequestSignResponse(i.url)) {
+        val headers = JwsUtil.signResponse(httpBody, i.verb, i.url, "application/json;charset=utf-8")
+        CustomResponseHeaders(headers.map(h => (h.name, h.values.mkString(", "))))
+      } else {
+        CustomResponseHeaders(Nil)
+      }
+    }.getOrElse(CustomResponseHeaders(Nil))
+  }
+  private def getSignRequestHeadersError(cc: Option[CallContextLight], httpBody: String): CustomResponseHeaders = {
+    cc.map { i =>
+      if(JwsUtil.forceVerifyRequestSignResponse(i.url)) {
+        val headers = JwsUtil.signResponse(Full(httpBody), i.verb, i.url, "application/json;charset=utf-8")
+        CustomResponseHeaders(headers.map(h => (h.name, h.values.mkString(", "))))
+      } else {
+        CustomResponseHeaders(Nil)
+      }
+    }.getOrElse(CustomResponseHeaders(Nil))
   }
 
   /**
@@ -475,6 +532,16 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   def getHeaders() = getHeadersCommonPart() ::: getGatewayResponseHeader()
 
   case class CustomResponseHeaders(list: List[(String, String)])
+  //This is used for get the value from props `email_domain_to_space_mappings`
+  case class EmailDomainToSpaceMapping(
+    domain: String,
+    bank_ids: List[String]
+  )
+  
+  case class EmailDomainToEntitlementMapping(
+    domain: String,
+    entitlements: List[CreateEntitlementJSON]
+  )
 
   //Note: changed noContent--> defaultSuccess, because of the Swagger format. (Not support empty in DataType, maybe fix it latter.)
   def noContentJsonResponse(implicit headers: CustomResponseHeaders = CustomResponseHeaders(Nil)) : JsonResponse =
@@ -493,14 +560,24 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   }
 
   def successJsonResponseNewStyle(cc: Any, callContext: Option[CallContext], httpCode : Int = 200)(implicit headers: CustomResponseHeaders = CustomResponseHeaders(Nil)) : JsonResponse = {
-    val jsonAst = ApiSession.processJson((Extraction.decompose(cc)), callContext)
+    val jsonAst: JValue = ApiSession.processJson((Extraction.decompose(cc)), callContext)
     callContext match {
+      case Some(c) if c.httpCode.isDefined && c.httpCode.get == 204 =>
+        val httpBody = None
+        val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
+        JsonResponse(JsRaw(""), getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, 204)
       case Some(c) if c.httpCode.isDefined =>
-        JsonResponse(jsonAst, getHeaders() ::: headers.list, Nil, c.httpCode.get)
-      case Some(c) if c.verb == "DELETE" =>
-        JsonResponse(JsRaw(""), getHeaders() ::: headers.list, Nil, 204)
+        val httpBody = Full(JsonAST.compactRender(jsonAst))
+        val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
+        JsonResponse(jsonAst, getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, c.httpCode.get)
+      case Some(c) if c.verb.toUpperCase() == "DELETE" =>
+        val httpBody = None
+        val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
+        JsonResponse(JsRaw(""), getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, 204)
       case _ =>
-        JsonResponse(jsonAst, getHeaders() ::: headers.list, Nil, httpCode)
+        val httpBody = Full(JsonAST.compactRender(jsonAst))
+        val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
+        JsonResponse(jsonAst, getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, httpCode)
     }
   }
 
@@ -510,7 +587,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     JsonResponse(jsonAst, getHeaders() ::: headers.list, Nil, httpCode)
   }
 
-  def errorJsonResponse(message : String = "error", httpCode : Int = 400)(implicit headers: CustomResponseHeaders = CustomResponseHeaders(Nil)) : JsonResponse = {
+  def errorJsonResponse(message : String = "error", httpCode : Int = 400, callContextLight: Option[CallContextLight] = None)(implicit headers: CustomResponseHeaders = CustomResponseHeaders(Nil)) : JsonResponse = {
     def check403(message: String): Boolean = {
       message.contains(UserHasMissingRoles) ||
         message.contains(UserNoPermissionAccessView) ||
@@ -524,7 +601,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val (code, responseHeaders) =
       message match {
         case msg if check401(msg) =>
-          val host = APIUtil.getPropsValue("hostname", "unknown host")
+          val host = Constant.HostName
           val headerValue = s"""OAuth realm="$host", Bearer realm="$host", DirectLogin realm="$host""""
           val addHeader = List((ResponseHeader.`WWW-Authenticate`, headerValue))
           (401, getHeaders() ::: headers.list ::: addHeader)
@@ -533,7 +610,10 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         case _ =>
           (httpCode, getHeaders() ::: headers.list)
       }
-    JsonResponse(Extraction.decompose(ErrorMessage(message = message, code = code)), responseHeaders, Nil, code)
+    val errorMessageAst: json.JValue = Extraction.decompose(ErrorMessage(message = message, code = code))
+    val httpBody = JsonAST.compactRender(errorMessageAst)
+    val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersError(callContextLight, httpBody)
+    JsonResponse(errorMessageAst, responseHeaders ::: jwsHeaders.list, Nil, code)
   }
 
   def notImplementedJsonResponse(message : String = ErrorMessages.NotImplemented, httpCode : Int = 501)(implicit headers: CustomResponseHeaders = CustomResponseHeaders(Nil)) : JsonResponse =
@@ -552,7 +632,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   /** check the currency ISO code from the ISOCurrencyCodes.xml file */
   def isValidCurrencyISOCode(currencyCode: String): Boolean = {
-    val currencyIsoCodeArray = (CurrencyIsoCodeFromXmlFile \"CcyTbl" \ "CcyNtry" \ "Ccy").map(_.text).mkString(" ").split("\\s+")
+    // Note: We add BTC bitcoin as XBT (the ISO compliant varient)
+    val currencyIsoCodeArray = (CurrencyIsoCodeFromXmlFile \"CcyTbl" \ "CcyNtry" \ "Ccy").map(_.text).mkString(" ").split("\\s+") :+ "XBT"
     currencyIsoCodeArray.contains(currencyCode)
   }
 
@@ -571,10 +652,10 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   /** enforce the password.
    * The rules :
-   * 1) length is >16 characters without validations
+   * 1) length is >16 characters without validations but max length <= 512
    * 2) or Min 10 characters with mixed numbers + letters + upper+lower case + at least one special character.
    * */
-  def isValidStrongPassword(password: String): Boolean = {
+  def validatePasswordOnCreation(password: String): Boolean = {
     /**
      * (?=.*\d)                    //should contain at least one digit
      * (?=.*[a-z])                 //should contain at least one lower case
@@ -585,7 +666,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val regex =
       """^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[!"#$%&'\(\)*+,-./:;<=>?@\\[\\\\]^_\\`{|}~])([A-Za-z0-9!"#$%&'\(\)*+,-./:;<=>?@\\[\\\\]^_\\`{|}~]{10,16})$""".r
     password match {
-      case password if (password.length > 16) => true
+      case password if(validatePasswordOnUsage(password) ==SILENCE_IS_GOLDEN) => true
+      case password if(password.length > 16 && password.length <= 512) => true
       case regex(password) => true
       case _ => false
     }
@@ -620,9 +702,10 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   }
 
   /** only  A-Z, a-z, 0-9, all allowed characters for password and max length <= 512  */
-  def checkMediumPassword(value:String): String ={
+  /** also support space now  */
+  def validatePasswordOnUsage(value:String): String ={
     val valueLength = value.length
-    val regex = """^([A-Za-z0-9!"#$%&'\(\)*+,-./:;<=>?@\\[\\\\]^_\\`{|}~]+)$""".r
+    val regex = """^([A-Za-z0-9!"#$%&'\(\)*+,-./:;<=>?@\\[\\\\]^_\\`{|}~ ]+)$""".r
     value match {
       case regex(e) if(valueLength <= 512) => SILENCE_IS_GOLDEN
       case regex(e) if(valueLength > 512) => ErrorMessages.InvalidValueLength
@@ -833,7 +916,11 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
             value <- tryo(values.head.toBoolean)?~! FilterAnonFormatError
             anon = OBPAnon(value)
           }yield anon
-
+        case "is_deleted" =>
+          for {
+            value <- tryo(values.head.toBoolean) ?~! FilterIsDeletedFormatError
+            deleted = OBPIsDeleted(value)
+          } yield deleted
         case "consumer_id" => Full(OBPConsumerId(values.head))
         case "user_id" => Full(OBPUserId(values.head))
         case "bank_id" => Full(OBPBankId(values.head))
@@ -876,6 +963,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       offset <- getOffset(httpParams)
       //all optional fields
       anon <- getHttpParamValuesByName(httpParams,"anon")
+      deletedStatus <- getHttpParamValuesByName(httpParams,"is_deleted")
       consumerId <- getHttpParamValuesByName(httpParams,"consumer_id")
       userId <- getHttpParamValuesByName(httpParams, "user_id")
       bankId <- getHttpParamValuesByName(httpParams, "bank_id")
@@ -913,7 +1001,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       List(limit, offset, ordering, fromDate, toDate,
         anon, consumerId, userId, url, appName, implementedByPartialFunction, implementedInVersion,
         verb, correlationId, duration, excludeAppNames, excludeUrlPattern, excludeImplementedByPartialfunctions,
-        connectorName,functionName, bankId, accountId, customerId, lockedStatus
+        connectorName,functionName, bankId, accountId, customerId, lockedStatus, deletedStatus
       ).filter(_ != OBPEmpty())
     }
   }
@@ -936,6 +1024,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val limit =  getHttpRequestUrlParam(httpRequestUrl,"limit")
     val offset =  getHttpRequestUrlParam(httpRequestUrl,"offset")
     val anon =  getHttpRequestUrlParam(httpRequestUrl,"anon")
+    val isDeleted = getHttpRequestUrlParam(httpRequestUrl, "is_deleted")
     val consumerId =  getHttpRequestUrlParam(httpRequestUrl,"consumer_id")
     val userId =  getHttpRequestUrlParam(httpRequestUrl, "user_id")
     val bankId =  getHttpRequestUrlParam(httpRequestUrl, "bank_id")
@@ -974,6 +1063,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       HTTPParam("account_id", accountId),
       HTTPParam("connector_name", connectorName),
       HTTPParam("customer_id", customerId),
+      HTTPParam("is_deleted", isDeleted),
       HTTPParam("locked_status", lockedStatus)
     ).filter(_.values.head != ""))//Here filter the field when value = "".
   }
@@ -1268,7 +1358,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
                           var roles: Option[List[ApiRole]] = None,
                           isFeatured: Boolean = false,
                           specialInstructions: Option[String] = None,
-                          var specifiedUrl: Option[String] = None // A derived value: Contains the called version (added at run time). See the resource doc for resource doc!
+                          var specifiedUrl: Option[String] = None, // A derived value: Contains the called version (added at run time). See the resource doc for resource doc!
+                          createdByBankId: Option[String] = None //we need to filter the resource Doc by BankId
                         ) {
     // this code block will be merged to constructor.
     {
@@ -1577,7 +1668,16 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   }
 
   def buildOperationId(apiVersion: ScannedApiVersion, partialFunctionName: String) =
-    s"${apiVersion.fullyQualifiedVersion}-$partialFunctionName"
+    s"${apiVersion.fullyQualifiedVersion}-$partialFunctionName".trim
+
+  //This is correct: OBPv3.0.0-getCoreAccountById
+  //This is OBPv4_0_0-dynamicEntity_deleteFooBar33
+  def getObpFormatOperationId(operationId: String) = {
+    val operationElements = operationId.split("-")
+    if(operationElements.length>1){
+      s"${operationElements(0).replaceAll("_",".")}-${operationElements(1)}"
+    }else operationId
+  }
 
   /**
    * Simulate S pass request and session, this object pass bank, account and view.
@@ -2151,7 +2251,10 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         None
     }
   }
-
+  /**
+   * Defines DAuth Custom Response Header.
+   */
+  val DAuthHeaderKey = "DAuth"
   /**
    * Turn a string of format "FooBar" into snake case "foo_bar"
    *
@@ -2216,13 +2319,13 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   def getDisabledVersions() : List[String] = APIUtil.getPropsValue("api_disabled_versions").getOrElse("").replace("[", "").replace("]", "").split(",").toList.filter(_.nonEmpty)
 
-  def getDisabledEndpoints() : List[String] = APIUtil.getPropsValue("api_disabled_endpoints").getOrElse("").replace("[", "").replace("]", "").split(",").toList.filter(_.nonEmpty)
+  def getDisabledEndpointOperationIds() : List[String] = APIUtil.getPropsValue("api_disabled_endpoints").getOrElse("").replace("[", "").replace("]", "").split(",").toList.filter(_.nonEmpty)
 
 
 
-  def getEnabledVersions() : List[String] = APIUtil.getPropsValue("api_enabled_versions").getOrElse("").replace("[", "").replace("]", "").split(",").toList.filter(_.nonEmpty)
+  def getEnabledVersions() : List[String] = APIUtil.getPropsValue("api_enabled_versions").getOrElse("").replace("[", "").replace("]", "").split(",").toList.filter(_.nonEmpty).map(_.trim)
 
-  def getEnabledEndpoints() : List[String] = APIUtil.getPropsValue("api_enabled_endpoints").getOrElse("").replace("[", "").replace("]", "").split(",").toList.filter(_.nonEmpty)
+  def getEnabledEndpointOperationIds() : List[String] = APIUtil.getPropsValue("api_enabled_endpoints").getOrElse("").replace("[", "").replace("]", "").split(",").toList.filter(_.nonEmpty).map(_.trim)
 
   def stringToDate(value: String, dateFormat: String): Date = {
     import java.text.SimpleDateFormat
@@ -2254,14 +2357,14 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
     Note we use "v" and "." in the name to match the ApiVersions enumeration in ApiUtil.scala
    */
-  def versionIsAllowed(version: ApiVersion) : Boolean = {
+  def versionIsAllowed(version: ScannedApiVersion) : Boolean = {
     def checkVersion: Boolean = {
       val disabledVersions: List[String] = getDisabledVersions()
       val enabledVersions: List[String] = getEnabledVersions()
-      if (
-        !disabledVersions.contains(version.toString) &&
+      if (//                                     this is the short version: v4.0.0             this is for fullyQualifiedVersion: OBPv4.0.0 
+        (disabledVersions.find(disableVersion => (disableVersion == version.apiShortVersion || disableVersion == version.fullyQualifiedVersion )).isEmpty) &&
           // Enabled versions or all
-          (enabledVersions.contains(version.toString) || enabledVersions.isEmpty)
+          (enabledVersions.find(enableVersion => (enableVersion ==version.apiShortVersion || enableVersion == version.fullyQualifiedVersion)).isDefined || enabledVersions.isEmpty)
       ) true
       else
         false
@@ -2280,7 +2383,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   Note a version such as v3_0_0.OBPAPI3_0_0 may well include routes from other earlier versions.
    */
 
-  def enableVersionIfAllowed(version: ApiVersion) : Boolean = {
+  def enableVersionIfAllowed(version: ScannedApiVersion) : Boolean = {
     val allowed: Boolean = if (versionIsAllowed(version)
     ) {
       version match {
@@ -2297,8 +2400,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         case ApiVersion.v3_0_0 => LiftRules.statelessDispatch.append(v3_0_0.OBPAPI3_0_0)
         case ApiVersion.v3_1_0 => LiftRules.statelessDispatch.append(v3_1_0.OBPAPI3_1_0)
         case ApiVersion.v4_0_0 => LiftRules.statelessDispatch.append(v4_0_0.OBPAPI4_0_0)
-        case ApiVersion.`apiBuilder` => LiftRules.statelessDispatch.append(OBP_APIBuilder)
-        case ApiVersion.sandbox => LiftRules.statelessDispatch.append(SandboxApiCalls)
+        case ApiVersion.`b1` => LiftRules.statelessDispatch.append(OBP_APIBuilder)
         case version: ScannedApiVersion => LiftRules.statelessDispatch.append(ScannedApis.versionMapScannedApis(version))
         case _ => logger.info(s"There is no ${version.toString}")
       }
@@ -2320,11 +2422,17 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   def getAllowedEndpoints (endpoints : Iterable[OBPEndpoint], resourceDocs: ArrayBuffer[ResourceDoc]) : List[OBPEndpoint] = {
 
-    // Endpoints
-    val disabledEndpoints = getDisabledEndpoints
+    val allowedResourceDocs: ArrayBuffer[ResourceDoc] = getAllowedResourceDocs(endpoints, resourceDocs)
 
-    // Endpoints
-    val enabledEndpoints = getEnabledEndpoints
+    allowedResourceDocs.map(_.partialFunction).toList
+  }
+
+  def getAllowedResourceDocs(endpoints: Iterable[OBPEndpoint], resourceDocs: ArrayBuffer[ResourceDoc]): ArrayBuffer[ResourceDoc] = {
+    // Endpoint Operation Ids
+    val disabledEndpointOperationIds = getDisabledEndpointOperationIds
+
+    // Endpoint Operation Ids
+    val enabledEndpointOperationIds = getEnabledEndpointOperationIds
 
     val onlyNewStyle = APIUtil.getPropsAsBoolValue("new_style_only", false)
 
@@ -2333,16 +2441,16 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       item <- resourceDocs
       if
       // Remove any Resource Doc / endpoint mentioned in Disabled endpoints in Props
-      !disabledEndpoints.contains(item.partialFunctionName) &&
-        // Only allow Resrouce Doc / endpoints mentioned in enabled endpoints - unless none are mentioned in which case ignore.
-        (enabledEndpoints.contains(item.partialFunctionName) || enabledEndpoints.isEmpty)  &&
+      !disabledEndpointOperationIds.contains(item.operationId) &&
+        // Only allow Resource Doc / endpoints mentioned in enabled endpoints - unless none are mentioned in which case ignore.
+        (enabledEndpointOperationIds.contains(item.operationId) || enabledEndpointOperationIds.isEmpty) &&
         // Only allow Resource Doc if it matches one of the pre selected endpoints from the version list.
-        // i.e. this function may recieve more Resource Docs than version endpoints
+        // i.e. this function may receive more Resource Docs than version endpoints
         endpoints.exists(_ == item.partialFunction) &&
         (item.tags.exists(_ == apiTagNewStyle) || !onlyNewStyle)
     )
-      yield item.partialFunction
-    routes.toList
+      yield item
+    routes
   }
 
   def extractToCaseClass[T](in: String)(implicit ev: Manifest[T]): Box[T] = {
@@ -2424,7 +2532,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           extractAPIFailureNewStyle(msg) match {
             case Some(af) =>
               val callContextLight = af.ccl.map(_.copy(httpCode = Some(af.failCode)))
-              logEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode)(getHeadersNewStyle(af.ccl))))
+              logEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode, callContextLight)(getHeadersNewStyle(af.ccl))))
             case _ =>
               val errorResponse: JsonResponse = errorJsonResponse(msg)
               reply.apply(errorResponse)
@@ -2460,7 +2568,11 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       in.onSuccess{ _ match {
         case (Full(jsonResponse: JsonResponse), _: Option[_]) =>
           reply(jsonResponse)
-        case t => Full(logEndpointTiming(t._2.map(_.toLight))(reply.apply(successJsonResponseNewStyle(t._1, t._2)(getHeadersNewStyle(t._2.map(_.toLight))))))
+        case t => Full(
+          logEndpointTiming(t._2.map(_.toLight))(
+            reply.apply(successJsonResponseNewStyle(t._1, t._2)(getHeadersNewStyle(t._2.map(_.toLight))))
+          )
+        )
       }
       }
       in.onFail {
@@ -2480,7 +2592,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           extractAPIFailureNewStyle(msg) match {
             case Some(af) =>
               val callContextLight = af.ccl.map(_.copy(httpCode = Some(af.failCode)))
-              Full(logEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode)(getHeadersNewStyle(af.ccl)))))
+              Full(logEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode, callContextLight)(getHeadersNewStyle(af.ccl)))))
             case _ =>
               val errorResponse: JsonResponse = errorJsonResponse(msg)
               Full((reply.apply(errorResponse)))
@@ -2560,15 +2672,16 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         for {
           (user, callContext) <- OAuth2Login.getUserFuture(cc)
         } yield {
-          if (!APIUtil.isSandboxMode && user.isDefined)
-            AuthUser.updateUserAccountViewsFuture(user.openOrThrowException("Can not be empty here"), callContext)
           (user, callContext)
         }
-      // Direct Login
-      } else if (getPropsAsBoolValue("allow_direct_login", true) && hasDirectLoginHeader(cc.authReqHeaderField)) {
+      } // Direct Login i.e DirectLogin: token=eyJhbGciOiJIUzI1NiJ9.eyIiOiIifQ.Y0jk1EQGB4XgdqmYZUHT6potmH3mKj5mEaA9qrIXXWQ
+      else if (getPropsAsBoolValue("allow_direct_login", true) && has2021DirectLoginHeader(cc.requestHeaders)) {
         DirectLogin.getUserFromDirectLoginHeaderFuture(cc)
-      // Gateway Login
-      } else if (getPropsAsBoolValue("allow_gateway_login", false) && hasGatewayHeader(cc.authReqHeaderField)) {
+      } // Direct Login Deprecated i.e Authorization: DirectLogin token=eyJhbGciOiJIUzI1NiJ9.eyIiOiIifQ.Y0jk1EQGB4XgdqmYZUHT6potmH3mKj5mEaA9qrIXXWQ
+      else if (getPropsAsBoolValue("allow_direct_login", true) && hasDirectLoginHeader(cc.authReqHeaderField)) {
+        DirectLogin.getUserFromDirectLoginHeaderFuture(cc)
+      } // Gateway Login
+      else if (getPropsAsBoolValue("allow_gateway_login", false) && hasGatewayHeader(cc.authReqHeaderField)) {
         APIUtil.getPropsValue("gateway.host") match {
           case Full(h) if h.split(",").toList.exists(_.equalsIgnoreCase(remoteIpAddress) == true) => // Only addresses from white list can use this feature
             val (httpCode, message, parameters) = GatewayLogin.validator(s.request)
@@ -2605,69 +2718,71 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           case _ =>
             Future { (Failure(ErrorMessages.GatewayLoginUnknownError), None) }
         }
-      } else if(Option(cc).flatMap(_.user).isDefined) {
+      }  // DAuth Login
+      else if (getPropsAsBoolValue("allow_dauth", false) && hasDAuthHeader(cc.requestHeaders)) {
+        logger.info("allow_dauth-getRemoteIpAddress: " + remoteIpAddress )
+        APIUtil.getPropsValue("dauth.host") match {
+          case Full(h) if h.split(",").toList.exists(_.equalsIgnoreCase(remoteIpAddress) == true) => // Only addresses from white list can use this feature
+            val dauthToken = DAuth.getDAuthToken(cc.requestHeaders)
+            dauthToken match {
+              case Some(token :: _) =>
+                val payload = DAuth.parseJwt(token)
+                payload match {
+                  case Full(payload) =>
+                    DAuth.getOrCreateResourceUserFuture(payload: String, Some(cc)) map {
+                      case Full((u,callContext)) => // Authentication is successful
+                        val consumer = DAuth.getConsumerByConsumerKey(payload)//TODO, need to verify the key later.
+                        val jwt = DAuth.createJwt(payload)
+                        val callContextUpdated = ApiSession.updateCallContext(DAuthResponseHeader(Some(jwt)), callContext)
+                        (Full(u), callContextUpdated.map(_.copy(consumer=consumer, user = Full(u))))
+                      case Failure(msg, t, c) =>
+                        (Failure(msg, t, c), None)
+                      case _ =>
+                        (Failure(payload), None)
+                    }
+                  case Failure(msg, t, c) =>
+                    Future { (Failure(msg, t, c), None) }
+                  case _ =>
+                    Future { (Failure(ErrorMessages.DAuthUnknownError), None) }
+                }
+              case _ =>
+                Future { (Failure(InvalidDAuthHeaderToken), None) }
+            }
+          case Full(h) if h.split(",").toList.exists(_.equalsIgnoreCase(remoteIpAddress) == false) => // All other addresses will be rejected
+            Future { (Failure(ErrorMessages.DAuthWhiteListAddresses), None) }
+          case Empty =>
+            Future { (Failure(ErrorMessages.DAuthHostPropertyMissing), None) } // There is no dauth.host in props file
+          case Failure(msg, t, c) =>
+            Future { (Failure(msg, t, c), None) }
+          case _ =>
+            Future { (Failure(ErrorMessages.DAuthUnknownError), None) }
+        }
+      } 
+      else if(Option(cc).flatMap(_.user).isDefined) {
         Future{(cc.user, Some(cc))}
       }
       else {
-        Future { (Empty, Some(cc)) }
+        if(hasAuthorizationHeader(reqHeaders)) {
+          // We want to throw error in case of wrong or unsupported header. For instance:
+          // - Authorization: mF_9.B5f-4.1JqM
+          // - Authorization: Basic mF_9.B5f-4.1JqM
+          Future { (Failure(ErrorMessages.InvalidAuthorizationHeader), Some(cc)) }
+        } else {
+          Future { (Empty, Some(cc)) }
+        }
       }
 
+    // COMMON POST AUTHENTICATION CODE GOES BELOW
 
-
-    /******************************************************************************************************************
-     * This block of code needs to update Call Context with Rate Limiting
-     * Please note that first source is the table RateLimiting and second is the table Consumer
-     */
-    def getRateLimiting(consumerId: String, version: String, name: String): Future[Box[RateLimiting]] = {
-      RateLimitingUtil.useConsumerLimits match {
-        case true => RateLimitingDI.rateLimiting.vend.getByConsumerId(consumerId, version, name, Some(new Date()))
-        case false => Future(Empty)
-      }
-    }
-    val resultWithRateLimiting: Future[(Box[User], Option[CallContext])] = for {
-      (user, cc) <- res
-      consumer = cc.flatMap(_.consumer)
-      version = cc.map(_.implementedInVersion).getOrElse("None") // Calculate apiVersion  in case of Rate Limiting
-      operationId = cc.flatMap(_.operationId) // Unique Identifier of Dynamic Endpoints
-      // Calculate apiName in case of Rate Limiting
-      name = cc.flatMap(_.resourceDocument.map(_.partialFunctionName)) // 1st try: function name at resource doc
-        .orElse(operationId) // 2nd try: In case of Dynamic Endpoint we can only use operationId
-        .getOrElse("None") // Not found any unique identifier
-      rateLimiting <- getRateLimiting(consumer.map(_.consumerId.get).getOrElse(""), version, name)
-    } yield {
-      val limit: Option[CallLimit] = rateLimiting match {
-        case Full(rl) => Some(CallLimit(
-          rl.consumerId,
-          rl.apiName,
-          rl.apiVersion,
-          rl.bankId,
-          rl.perSecondCallLimit,
-          rl.perMinuteCallLimit,
-          rl.perHourCallLimit,
-          rl.perDayCallLimit,
-          rl.perWeekCallLimit,
-          rl.perMonthCallLimit))
-        case Empty =>
-          Some(CallLimit(
-            consumer.map(_.consumerId.get).getOrElse(""),
-            None,
-            None,
-            None,
-            consumer.map(_.perSecondCallLimit.get).getOrElse(-1),
-            consumer.map(_.perMinuteCallLimit.get).getOrElse(-1),
-            consumer.map(_.perHourCallLimit.get).getOrElse(-1),
-            consumer.map(_.perDayCallLimit.get).getOrElse(-1),
-            consumer.map(_.perWeekCallLimit.get).getOrElse(-1),
-            consumer.map(_.perMonthCallLimit.get).getOrElse(-1)
-          ))
-        case _ => None
-      }
-      (user, cc.map(_.copy(rateLimiting = limit)))
-    }
-    /*************************************************************************************************************** */
+    // Check is it a user deleted or locked
+    val userIsLockedOrDeleted: Future[(Box[User], Option[CallContext])] = AfterApiAuth.checkUserIsDeletedOrLocked(res)
+    // Check Rate Limiting
+    val resultWithRateLimiting: Future[(Box[User], Option[CallContext])] = AfterApiAuth.checkRateLimiting(userIsLockedOrDeleted)
+    // User init actions
+    val resultWithUserInitActions: Future[(Box[User], Option[CallContext])] = AfterApiAuth.outerLoginUserInitAction(resultWithRateLimiting)
 
     // Update Call Context
-    resultWithRateLimiting map {
+    resultWithUserInitActions map {
       x => (x._1, ApiSession.updateCallContext(Spelling(spelling), x._2))
     } map {
       x => (x._1, x._2.map(_.copy(implementedInVersion = implementedInVersion)))
@@ -2689,12 +2804,16 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   }
 
+
+
+
   /**
    * This Function is used to terminate a Future used in for-comprehension with specific message and code in case that value of Box is not Full.
    * For example:
    *  - Future(Full("Some value")    -> Does NOT terminate
    *  - Future(Empty)                -> Terminates
    *  - Future(Failure/ParamFailure) -> Terminates
+ *
    * @param box Boxed Payload
    * @param cc Call Context
    * @param emptyBoxErrorMsg Error message in case of Empty Box
@@ -2734,7 +2853,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
    * Better also check the logic for needToRefreshUser method.
    */
   def refreshUserIfRequired(user: Box[User], callContext: Option[CallContext]) = {
-    if(!APIUtil.isSandboxMode && user.isDefined && UserRefreshes.UserRefreshes.vend.needToRefreshUser(user.head.userId))
+    if(user.isDefined && UserRefreshes.UserRefreshes.vend.needToRefreshUser(user.head.userId))
       user.map(AuthUser.updateUserAccountViewsFuture(_, callContext))
     else
       None
@@ -2752,6 +2871,10 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       )
     } map {
       x =>
+        //TODO due to performance issue, first comment this out,
+        // val authUser = AuthUser.findUserByUsernameLocally(x._1.head.name).openOrThrowException("")
+        // tryo{AuthUser.grantEntitlementsToUseDynamicEndpointsInSpaces(authUser, x._2)}.openOr(logger.error(s"${x._1} authenticatedAccess.grantEntitlementsToUseDynamicEndpointsInSpaces throw exception! "))
+
         // make sure, if `refreshUserIfRequired` throw exception, do not break the `authenticatedAccess`, 
         // TODO better move `refreshUserIfRequired` to other place.
         tryo{refreshUserIfRequired(x._1,x._2)}.openOr(logger.error(s"${x._1} authenticatedAccess.refreshUserIfRequired throw exception! "))
@@ -2765,7 +2888,14 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
    * @return Failure in case we exceeded rate limit
    */
   def anonymousAccess(cc: CallContext): Future[(Box[User], Option[CallContext])] = {
-    getUserAndSessionContextFuture(cc) map {
+    getUserAndSessionContextFuture(cc)  map { result =>
+      val url = result._2.map(_.url).getOrElse("None")
+      val verb = result._2.map(_.verb).getOrElse("None")
+      val body = result._2.flatMap(_.httpBody)
+      val reqHeaders = result._2.map(_.requestHeaders).getOrElse(Nil)
+      // Verify signed request
+      JwsUtil.verifySignedRequest(body, verb, url, reqHeaders, result)
+    } map {
       result =>
         val excludeFunctions = getPropsValue("rate_limiting.exclude_endpoints", "root").split(",").toList
         cc.resourceDocument.map(_.partialFunctionName) match {
@@ -2789,15 +2919,33 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     }
   }
 
-  def applicationAccess(cc: CallContext): Future[(Box[Consumer], Option[CallContext])] = {
+  /**
+   * This function is used to guard endpoints(APIs) which require at least Client Authentication.
+   * I.e you don't need to be logged in in order to make an request but the endpoint must know which client makes call.
+   * Client Authentication => we know which application.
+   * User Authentication => we know which user is logged in and via which application.
+   * @param cc Call Context of te current call
+   * @return Tuple (User, Call Context)
+   */
+  def applicationAccess(cc: CallContext): Future[(Box[User], Option[CallContext])] = 
     getUserAndSessionContextFuture(cc) map { result =>
-      val consumer = if (result._2.isDefined) result._2.map(_.consumer).get else Empty
-      (
-        fullBoxOrException(consumer ~> APIFailureNewStyle(ApplicationNotIdentified, 401, Some(cc.toLight))),
-        result._2
-      )
+      val url = result._2.map(_.url).getOrElse("None")
+      val verb = result._2.map(_.verb).getOrElse("None")
+      val body = result._2.flatMap(_.httpBody)
+      val reqHeaders = result._2.map(_.requestHeaders).getOrElse(Nil)
+      // Verify signed request if need be
+      JwsUtil.verifySignedRequest(body, verb, url, reqHeaders, result)
+    } map { result =>
+      result._1 match {
+        case Empty if result._2.flatMap(_.consumer).isDefined => // There is no error and Consumer is defined
+          result
+        case _ =>
+          (
+            fullBoxOrException(result._1 ~> APIFailureNewStyle(ApplicationNotIdentified, 401, Some(cc.toLight))),
+            result._2
+          )
+      }
     }
-  }
 
   def filterMessage(obj: Failure): String = {
     logger.debug("Failure: " + obj)
@@ -2857,7 +3005,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         throw new Exception(UnknownError)
     }
   }
-
+  
   def unboxFullAndWrapIntoFuture[T](box: Box[T])(implicit m: Manifest[T]) : Future[T] = {
     Future {
       unboxFull(fullBoxOrException(box))
@@ -2919,9 +3067,6 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
                                     otherAccountRoutingScheme: String,
                                     otherAccountRoutingAddress: String
                                   )= createOBPId(s"$thisBankId$thisAccountId$counterpartyName$otherAccountRoutingScheme$otherAccountRoutingAddress")
-
-  //TODO, now we have the star connector, it will break the isSandboxMode method logic. Need to double check how to use this method now. 
-  val isSandboxMode: Boolean = (APIUtil.getPropsValue("connector").openOrThrowException(attemptedToOpenAnEmptyBox).toString).equalsIgnoreCase("mapped")
 
   def isDataFromOBPSide (methodName: String, argNameToValue: Array[(String, AnyRef)] = Array.empty): Boolean = {
     val connectorNameInProps = APIUtil.getPropsValue("connector").openOrThrowException(attemptedToOpenAnEmptyBox)
@@ -3004,7 +3149,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         composedFunc(it)
       }
     }
-  }
+  }.map(_.trim) // Remove trailing or leading spaces in the end
   def getPropsValue(nameOfProperty: String, defaultValue: String): String = {
     getPropsValue(nameOfProperty) openOr(defaultValue)
   }
@@ -3030,12 +3175,23 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     Else just return the session
     Note there are Read and Write side effects here!
   */
+  // getPropsAsBoolValue cannot be called directly inside the function activeBrand due to java.lang.StackOverflowError
+  val brandsEnabled = APIUtil.getPropsAsBoolValue("brands_enabled", false)
   def activeBrand() : Option[String] = {
-
+    brandsEnabled match {
+      case true =>
+        getActiveBrand()
+      case false =>
+        None
+    }
+  }
+  
+  // TODO This function needs testing in a cluster environment
+  private def getActiveBrand(): Option[String] = {
     val brandParameter = "brand"
 
     // Use brand in parameter (query or form)
-    val brand : Option[String] = S.param(brandParameter) match {
+    val brand: Option[String] = S.param(brandParameter) match {
       case Full(value) => {
         // If found, and has a valid format, set the session.
         if (isValidID(value)) {
@@ -3043,11 +3199,11 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           logger.debug(s"activeBrand says: I found a $brandParameter param. $brandParameter session has been set to: ${S.getSessionAttribute(brandParameter)}")
           Some(value)
         } else {
-          logger.warn (s"activeBrand says: ${ErrorMessages.InvalidBankIdFormat}")
+          logger.warn(s"activeBrand says: ${ErrorMessages.InvalidBankIdFormat}")
           None
         }
       }
-      case _ =>  {
+      case _ => {
         // Else look in the session
         S.getSessionAttribute(brandParameter)
       }
@@ -3079,14 +3235,17 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
 
 
-  val ALLOW_PUBLIC_VIEWS: Boolean = getPropsAsBoolValue("allow_public_views", false)
-  val ALLOW_ACCOUNT_FIREHOSE: Boolean = ApiPropsWithAlias.allowAccountFirehose
-  val ALLOW_CUSTOMER_FIREHOSE: Boolean = ApiPropsWithAlias.allowCustomerFirehose
+  def allowPublicViews: Boolean = getPropsAsBoolValue("allow_public_views", false)
+  def allowAccountFirehose: Boolean = ApiPropsWithAlias.allowAccountFirehose
+  def allowCustomerFirehose: Boolean = ApiPropsWithAlias.allowCustomerFirehose
   def canUseAccountFirehose(user: User): Boolean = {
-    ALLOW_ACCOUNT_FIREHOSE && hasEntitlement("", user.userId, ApiRole.canUseAccountFirehoseAtAnyBank)
+    allowAccountFirehose && hasEntitlement("", user.userId, ApiRole.canUseAccountFirehoseAtAnyBank)
+  }
+  def canUseAccountFirehoseAtBank(user: User, bankId: BankId): Boolean = {
+    allowAccountFirehose && hasEntitlement(bankId.value, user.userId, ApiRole.canUseAccountFirehose)
   }
   def canUseCustomerFirehose(user: User): Boolean = {
-    ALLOW_CUSTOMER_FIREHOSE && hasEntitlement("", user.userId, ApiRole.canUseCustomerFirehoseAtAnyBank)
+    allowCustomerFirehose && hasEntitlement("", user.userId, ApiRole.canUseCustomerFirehoseAtAnyBank)
   }
   /**
    * This will accept all kinds of view and user.
@@ -3101,6 +3260,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       true
     else
       user match {
+        case Some(u) if hasAccountFirehoseAccessAtBank(view,u, bankIdAccountId.bankId)  => true //Login User and Firehose access
         case Some(u) if hasAccountFirehoseAccess(view,u)  => true//Login User and Firehose access
         case Some(u) if u.hasAccountAccess(view, bankIdAccountId)=> true     // Login User and check view access
         case _ =>
@@ -3116,7 +3276,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val customView = Views.views.vend.customView(viewId, bankIdAccountId)
     customView match { // CHECK CUSTOM VIEWS
       // 1st: View is Pubic and Public views are NOT allowed on this instance.
-      case Full(v) if(v.isPublic && !ALLOW_PUBLIC_VIEWS) => Failure(PublicViewsNotAllowedOnThisInstance)
+      case Full(v) if(v.isPublic && !allowPublicViews) => Failure(PublicViewsNotAllowedOnThisInstance)
       // 2nd: View is Pubic and Public views are allowed on this instance.
       case Full(v) if(isPublicView(v)) => customView
       // 3rd: The user has account access to this custom view
@@ -3126,13 +3286,15 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         val systemView = Views.views.vend.systemView(viewId)
         systemView match  { // CHECK SYSTEM VIEWS
           // 1st: View is Pubic and Public views are NOT allowed on this instance.
-          case Full(v) if(v.isPublic && !ALLOW_PUBLIC_VIEWS) => Failure(PublicViewsNotAllowedOnThisInstance)
+          case Full(v) if(v.isPublic && !allowPublicViews) => Failure(PublicViewsNotAllowedOnThisInstance)
           // 2nd: View is Pubic and Public views are allowed on this instance.
           case Full(v) if(isPublicView(v)) => systemView
           // 3rd: The user has account access to this system view
           case Full(v) if (user.isDefined && user.get.hasAccountAccess(v, bankIdAccountId)) => systemView
           // 4th: The user has firehose access to this system view
           case Full(v) if (user.isDefined && hasAccountFirehoseAccess(v, user.get)) => systemView
+          // 5th: The user has firehose access at a bank to this system view
+          case Full(v) if (user.isDefined && hasAccountFirehoseAccessAtBank(v, user.get, bankIdAccountId.bankId)) => systemView
           // The user has NO account access at all
           case _ => Empty
         }
@@ -3154,7 +3316,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case true if view.isPublic => // Sanity check. We don't want a public owner view.
         logger.warn(s"Public owner encountered. Primary view id: ${view.id}")
         false
-      case _ => view.isPublic && APIUtil.ALLOW_PUBLIC_VIEWS
+      case _ => view.isPublic && APIUtil.allowPublicViews
     }
   }
   /**
@@ -3162,6 +3324,13 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
    */
   def hasAccountFirehoseAccess(view: View, user: User) : Boolean = {
     if(view.isFirehose && canUseAccountFirehose(user)) true
+    else false
+  }
+  /**
+   * This view Firehose is true and set `allow_account_firehose = true` and the user has  `CanUseAccountFirehoseAtAnyBank` role
+   */
+  def hasAccountFirehoseAccessAtBank(view: View, user: User, bankId: BankId) : Boolean = {
+    if(view.isFirehose && canUseAccountFirehoseAtBank(user, bankId)) true
     else false
   }
 
@@ -3343,14 +3512,18 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case true =>
         `getPSD2-CERT`(cc.map(_.requestHeaders).getOrElse(Nil)) match {
           case Some(pem) =>
-            val validatedPem = X509.validate(pem)
+            logger.debug("PSD2-CERT pem: " + pem)
+            val decodedPem = URLDecoder.decode(pem,"UTF-8")
+            val validatedPem = X509.validate(decodedPem)
+            logger.debug("validatedPem: " + validatedPem)
             validatedPem match {
               case Full(true) =>
-                val roles = X509.extractPsd2Roles(pem).map(_.exists(_ == serviceProvider))
-                roles match {
+                val hasServiceProvider = X509.extractPsd2Roles(decodedPem).map(_.exists(_ == serviceProvider))
+                logger.debug("hasServiceProvider: " + hasServiceProvider)
+                hasServiceProvider match {
                   case Full(true) => Full(true)
                   case Full(false) => Failure(X509ActionIsNotAllowed)
-                  case _ => roles
+                  case _ => hasServiceProvider
                 }
               case _ =>
                 validatedPem
@@ -3691,6 +3864,40 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       }
     }
   }
+  /**
+   * validate whether current request's query parameters
+   * @param operationId
+   * @param callContext
+   * @return Full(errorResponse) if validate fail
+   */
+  def validateQueryParams(operationId: String, callContext: CallContext): Box[JsonResponse] = {
+    val queryString: String =  if (callContext.url.contains("?")) callContext.url.split("\\?",2)(1) else "" 
+    val queryParams: Array[String] = queryString.split("&").map(_.split("=")(0))
+    val queryParamsGrouped: Map[String, Array[String]] = queryParams.groupBy(x => x)
+    queryParamsGrouped.toList.forall(_._2.size == 1) match {
+      case true => Empty
+      case false => 
+        Box.tryo(
+          createErrorJsonResponse(s"${ErrorMessages.DuplicateQueryParameters}", 400, callContext.correlationId)
+        )
+    }
+  }
+  /**
+   * validate whether current request's header keys
+   * @param operationId
+   * @param callContext
+   * @return Full(errorResponse) if validate fail
+   */
+  def validateRequestHeadersKeys(operationId: String, callContext: CallContext): Box[JsonResponse] = {
+    val headerKeysGrouped: Map[String, List[HTTPParam]] = callContext.requestHeaders.groupBy(x => x.name)
+    headerKeysGrouped.toList.forall(_._2.size == 1) match {
+      case true => Empty
+      case false => 
+        Box.tryo(
+          createErrorJsonResponse(s"${ErrorMessages.DuplicateHeaderKeys}", 400, callContext.correlationId)
+        )
+    }
+  }
 
   def createErrorJsonResponse(errorMsg: String, errorCode: Int, correlationId: String): JsonResponse = {
     import net.liftweb.json.JsonDSL._
@@ -3754,6 +3961,14 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     // validate auth type
     {
       case (Some(callContext), operationId) => validateAuthType(operationId, callContext)
+    },
+    // validate query params
+    {
+      case (Some(callContext), operationId) => validateQueryParams(operationId, callContext)
+    },
+    // validate request header keys
+    {
+      case (Some(callContext), operationId) => validateRequestHeadersKeys(operationId, callContext)
     }
   )
 
@@ -3856,4 +4071,58 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     }
   }
 
+  val berlinGroupV13AliasPath = APIUtil.getPropsValue("berlin_group_v1.3_alias.path","").split("/").toList.map(_.trim)
+
+  val getAtmsIsPublic = APIUtil.getPropsAsBoolValue("apiOptions.getAtmsIsPublic", true)
+
+  val emailDomainToSpaceMappings: List[EmailDomainToSpaceMapping] = {
+    def extractor(str: String) = try {
+      val emailToSpaceMappings =  json.parse(str).extract[List[EmailDomainToSpaceMapping]]
+      //The props value can be parse to JNothing.
+      if(str.nonEmpty && emailToSpaceMappings == Nil) 
+        throw new RuntimeException("props [email_domain_to_space_mappings] parse -> extract to Nil!")
+      else
+        emailToSpaceMappings
+    } catch {
+      case e: Throwable => // error handling, found wrong props value as early as possible.
+        this.logger.error(s"props [email_domain_to_space_mappings] value is invalid, it should be the class($EmailDomainToSpaceMapping) json format, current value is $str ." );
+        throw e;
+    }
+
+    APIUtil.getPropsValue("email_domain_to_space_mappings").map(extractor).getOrElse(Nil)
+  }
+
+  val emailDomainToEntitlementMappings: List[EmailDomainToEntitlementMapping] = {
+    def extractor(str: String) = try {
+      val emailDomainToEntitlementMappings =  json.parse(str).extract[List[EmailDomainToEntitlementMapping]]
+      //The props value can be parse to JNothing.
+      if(str.nonEmpty && emailDomainToEntitlementMappings == Nil)
+        throw new RuntimeException("props [email_domain_to_entitlement_mappings] parse -> extract to Nil!")
+      else
+        emailDomainToEntitlementMappings
+    } catch {
+      case e: Throwable => // error handling, found wrong props value as early as possible.
+        this.logger.error(s"props [email_domain_to_entitlement_mappings] value is invalid, it should be the class($EmailDomainToEntitlementMapping) json format, current value is $str ." );
+        throw e;
+    }
+
+    APIUtil.getPropsValue("email_domain_to_entitlement_mappings").map(extractor).getOrElse(Nil)
+  }
+
+  val getProductsIsPublic = APIUtil.getPropsAsBoolValue("apiOptions.getProductsIsPublic", true)
+
+  val createProductEntitlements = canCreateProduct :: canCreateProductAtAnyBank ::  Nil
+  
+  val createProductEntitlementsRequiredText = UserHasMissingRoles + createProductEntitlements.mkString(" or ")
+
+  val productHiearchyAndCollectionNote =
+    """
+      |
+      |Product hiearchy vs Product Collections:
+      |
+      |* You can define a hierarchy of products - so that a child Product inherits attributes of its parent Product -  using the parent_product_code in Product.
+      |
+      |* You can define a collection (also known as baskets or buckets) of products using Product Collections.
+      |
+      """.stripMargin
 }

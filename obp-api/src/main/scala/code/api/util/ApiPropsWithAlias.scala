@@ -13,22 +13,26 @@ import net.liftweb.common.Full
   */
 object ApiPropsWithAlias {
   import HelperFunctions._
-  val requireScopesForAllRoles = getValueByNameOrAliasAsBoolean(
+  def requireScopesForAllRoles = getValueByNameOrAliasAsBoolean(
     name="require_scopes_for_all_roles", 
     alias="require_scopes", 
     defaultValue="false")
-  val migrationScriptsEnabled = getValueByNameOrAliasAsBoolean(
+  def migrationScriptsEnabled = getValueByNameOrAliasAsBoolean(
     name="migration_scripts.enabled",
     alias="migration_scripts.execute",
     defaultValue="false")
-  val allowAccountFirehose = getValueByNameOrAliasAsBoolean(
+  def allowAccountFirehose = getValueByNameOrAliasAsBoolean(
     name="allow_account_firehose",
     alias="allow_firehose_views",
     defaultValue="false")
-  val allowCustomerFirehose = getValueByNameOrAliasAsBoolean(
+  def allowCustomerFirehose = getValueByNameOrAliasAsBoolean(
     name="allow_customer_firehose",
     alias="allow_firehose_views",
     defaultValue="false")
+  def jwtTokenSecret = getValueByNameOrAlias(
+    name="jwt.token_secret",
+    alias="gateway.token_secret",
+    defaultValue="Cannot get your at least 256 bit secret")
 }
 
 object HelperFunctions extends MdcLoggable {

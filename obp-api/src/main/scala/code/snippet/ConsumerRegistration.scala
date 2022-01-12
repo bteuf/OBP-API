@@ -28,7 +28,7 @@ package code.snippet
 
 import java.util
 
-import code.api.DirectLogin
+import code.api.{Constant, DirectLogin}
 import code.api.util.{APIUtil, ErrorMessages, X509}
 import code.consumer.Consumers
 import code.model.dataAccess.AuthUser
@@ -53,10 +53,11 @@ class ConsumerRegistration extends MdcLoggable {
   private object redirectionURLVar extends RequestVar("")
   private object requestUriVar extends RequestVar("")
   private object authenticationURLVar extends RequestVar("")
-  private object appTypeVar extends RequestVar[AppType](AppType.Web)
+  private object appTypeVar extends RequestVar[AppType](AppType.Confidential)
   private object descriptionVar extends RequestVar("")
   private object devEmailVar extends RequestVar("")
-  private object appType extends RequestVar("Web")
+  private object companyVar extends RequestVar("")
+  private object appType extends RequestVar("Unknown")
   private object clientCertificateVar extends RequestVar("")
   private object signingAlgVar extends RequestVar("")
   private object jwksUriVar extends RequestVar("")
@@ -79,7 +80,7 @@ class ConsumerRegistration extends MdcLoggable {
   
   def registerForm = {
 
-    val appTypes = List((AppType.Web.toString, AppType.Web.toString), (AppType.Mobile.toString, AppType.Mobile.toString))
+    val appTypes = List((AppType.Confidential.toString, AppType.Confidential.toString), (AppType.Public.toString, AppType.Public.toString))
     val signingAlgs = List(
       "ES256", "ES384", "ES512",
       //Hydra support alg: RS256, RS384, RS512, PS256, PS384, PS512, ES256, ES384 and ES512
@@ -93,9 +94,12 @@ class ConsumerRegistration extends MdcLoggable {
     def registerWithoutWarnings =
       register &
       "#register-consumer-errors" #> ""
+    
+    def displayAppType: Boolean = APIUtil.getPropsAsBoolValue("consumer_registration.display_app_type", true)
 
     def register = {
       "form" #> {
+          "#app-type-div [style] " #> {if(displayAppType) "display: block;" else "display: none"} &
           "#appType" #> SHtml.select(appTypes, Box!! appType.is, appType(_)) &
           "#appName" #> SHtml.text(nameVar.is, nameVar(_)) &
           "#redirect_url_label *" #> {
@@ -103,6 +107,7 @@ class ConsumerRegistration extends MdcLoggable {
           } &
           "#appRedirectUrl" #> SHtml.text(redirectionURLVar, redirectionURLVar(_)) &
           "#appDev" #> SHtml.text(devEmailVar, devEmailVar(_)) &
+          "#company" #> SHtml.text(companyVar, companyVar(_)) &
           "#appDesc" #> SHtml.textarea(descriptionVar, descriptionVar (_)) &
           "#appUserAuthenticationUrl" #> SHtml.text(authenticationURLVar.is, authenticationURLVar(_)) & {
             if(HydraUtil.integrateWithHydra) {
@@ -121,8 +126,8 @@ class ConsumerRegistration extends MdcLoggable {
     }
 
     def showResults(consumer : Consumer) = {
-      val urlOAuthEndpoint = APIUtil.getPropsValue("hostname", "") + "/oauth/initiate"
-      val urlDirectLoginEndpoint = APIUtil.getPropsValue("hostname", "") + "/my/logins/direct"
+      val urlOAuthEndpoint = Constant.HostName + "/oauth/initiate"
+      val urlDirectLoginEndpoint = Constant.HostName + "/my/logins/direct"
       val jwksUri = jwksUriVar.is
       val jwks = jwksVar.is
       val jwsAlg = signingAlgVar.is
@@ -306,6 +311,7 @@ class ConsumerRegistration extends MdcLoggable {
       appTypeVar.set(appTypeSelected.get)
       descriptionVar.set(descriptionVar.is)
       devEmailVar.set(devEmailVar.is)
+      companyVar.set(companyVar.is)
       redirectionURLVar.set(redirectionURLVar.is)
 
       requestUriVar.set(requestUri)
@@ -335,17 +341,21 @@ class ConsumerRegistration extends MdcLoggable {
       } else if(submitButtonDefenseFlag.isEmpty) {
         showErrorsForDescription("The 'Register' button random name has been modified !")
       } else{
+        val appType =
+          if(displayAppType) appTypeSelected
+          else Some(AppType.Unknown) // If Application Type is hidden from Consumer registration it defaults to Unknown
         val consumer = Consumers.consumers.vend.createConsumer(
           Some(Helpers.randomString(40).toLowerCase),
           Some(Helpers.randomString(40).toLowerCase),
           Some(true),
           Some(nameVar.is),
-          appTypeSelected,
+          appType,
           Some(descriptionVar.is),
           Some(devEmailVar.is),
           Some(redirectionURLVar.is),
           Some(AuthUser.getCurrentResourceUserUserId),
-          Some(clientCertificate))
+          Some(clientCertificate),
+          company = Some(companyVar.is))
         logger.debug("consumer: " + consumer)
         consumer match {
           case Full(x) =>
@@ -375,7 +385,7 @@ class ConsumerRegistration extends MdcLoggable {
       val consumerKeyOrMessage : String = if (sendSensitive) registered.key.get else "Configured so sensitive data is not sent by email (Consumer Key)."
       val consumerSecretOrMessage : String = if (sendSensitive) registered.secret.get else "Configured so sensitive data is not sent by email (Consumer Secret)."
 
-      val thisApiInstance = APIUtil.getPropsValue("hostname", "unknown host")
+      val thisApiInstance = Constant.HostName
       val apiExplorerUrl = getWebUiPropsValue("webui_api_explorer_url", "unknown host")
       val directLoginDocumentationUrl = getWebUiPropsValue("webui_direct_login_documentation_url", apiExplorerUrl + "/glossary#Direct-Login")
       val oauthDocumentationUrl = getWebUiPropsValue("webui_oauth_1_documentation_url", apiExplorerUrl + "/glossary#OAuth-1.0a")
@@ -426,7 +436,7 @@ class ConsumerRegistration extends MdcLoggable {
       toAddressesString <- APIUtil.getPropsValue("mail.api.consumer.registered.notification.addresses") ?~ "Could not send mail: Missing props param for 'to'"
     } yield {
 
-      val thisApiInstance = APIUtil.getPropsValue("hostname", "unknown host")
+      val thisApiInstance = Constant.HostName
       val registrationMessage = s"New user signed up for API keys on $thisApiInstance. \n" +
       		s"Email: ${registered.developerEmail.get} \n" +
       		s"App name: ${registered.name.get} \n" +
@@ -471,7 +481,7 @@ class ConsumerRegistration extends MdcLoggable {
         while(matcher.find()) {
           val userName = matcher.group(1)
           val password = matcher.group(2)
-          val (code, token) = DirectLogin.createToken(Map(("username", userName), ("password", password), ("consumer_key", consumerKey)))
+          val (code, token, userId) = DirectLogin.createToken(Map(("username", userName), ("password", password), ("consumer_key", consumerKey)))
           val authHeader = code match {
             case 200 => (userName, password) -> s"""Authorization: DirectLogin token="$token""""
             case _ => (userName, password) ->  "username or password is invalid, generate token fail"

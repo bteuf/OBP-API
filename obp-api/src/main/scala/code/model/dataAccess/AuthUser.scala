@@ -26,15 +26,19 @@ TESOBE (http://www.tesobe.com/)
   */
 package code.model.dataAccess
 
+import code.api.util.CommonFunctions.validUri
 import code.UserRefreshes.UserRefreshes
 import code.accountholders.AccountHolders
-import code.api.util.APIUtil.{hasAnOAuthHeader, isValidStrongPassword, logger, _}
+import code.api.util.APIUtil.{hasAnOAuthHeader, logger, validatePasswordOnCreation, _}
 import code.api.util.ErrorMessages._
 import code.api.util._
-import code.api.{APIFailure, DirectLogin, GatewayLogin, OAuthHandshake}
+import code.api.v4_0_0.dynamic.DynamicEndpointHelper
+import code.api.{APIFailure, Constant, DirectLogin, GatewayLogin, OAuthHandshake}
 import code.bankconnectors.Connector
 import code.context.UserAuthContextProvider
+import code.entitlement.Entitlement
 import code.loginattempts.LoginAttempt
+import code.token.TokensOpenIDConnect
 import code.users.Users
 import code.util.Helper
 import code.util.Helper.MdcLoggable
@@ -52,8 +56,11 @@ import com.openbankproject.commons.ExecutionContext.Implicits.global
 import code.webuiprops.MappedWebUiPropsProvider.getWebUiPropsValue
 import org.apache.commons.lang3.StringUtils
 import code.util.HydraUtil._
+import com.github.dwickern.macros.NameOf.nameOf
 import sh.ory.hydra.model.AcceptLoginRequest
 import net.liftweb.http.S.fmapFunc
+
+import scala.concurrent.Future
 
 /**
  * An O-R mapped "User" class that includes first name, last name, password
@@ -77,14 +84,14 @@ import net.liftweb.http.S.fmapFunc
   *      one AuthUser <---> one ResourceUser 
   *
  */
-class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
+class AuthUser extends MegaProtoUser[AuthUser] with CreatedUpdated with MdcLoggable {
   def getSingleton = AuthUser // what's the "meta" server
 
   object user extends MappedLongForeignKey(this, ResourceUser)
 
   override lazy val firstName = new MyFirstName
   
-  protected class MyFirstName extends MappedString(this, 32) {
+  protected class MyFirstName extends MappedString(this, 100) {
     def isEmpty(msg: => String)(value: String): List[FieldError] =
       value match {
         case null                  => List(FieldError(this, Text(msg))) // issue 179
@@ -109,7 +116,7 @@ class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
   
   override lazy val lastName = new MyLastName
 
-  protected class MyLastName extends MappedString(this, 32) {
+  protected class MyLastName extends MappedString(this, 100) {
     def isEmpty(msg: => String)(value: String): List[FieldError] =
       value match {
         case null                  => List(FieldError(this, Text(msg))) // issue 179
@@ -134,6 +141,7 @@ class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
   }
   
   /**
+   * Username is a valid email address or the regex below:
    * Regex to validate a username
    * 
    * ^(?=.{8,100}$)(?![_.])(?!.*[_.]{2})[a-zA-Z0-9._]+(?<![_.])$
@@ -155,7 +163,7 @@ class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
     * The username field for the User.
     */
   lazy val username: userName = new userName()
-  class userName extends MappedString(this, 64) {
+  class userName extends MappedString(this, 100) {
     def isEmpty(msg: => String)(value: String): List[FieldError] =
       value match {
         case null                  => List(FieldError(this, Text(msg))) // issue 179
@@ -165,11 +173,13 @@ class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
     def usernameIsValid(msg: => String)(e: String) = e match {
       case null                                             => List(FieldError(this, Text(msg)))
       case e if e.trim.isEmpty                              => List(FieldError(this, Text(msg)))
+      case e if emailRegex.findFirstMatchIn(e).isDefined    => Nil // Email is valid username
       case e if usernameRegex.findFirstMatchIn(e).isDefined => Nil
       case _                                                => List(FieldError(this, Text(msg)))
     }
     override def displayName = S.?("Username")
-    override def dbIndexed_? = true
+    @deprecated("Use UniqueIndex(username, provider)","27 December 2021")
+    override def dbIndexed_? = false // We use more general index UniqueIndex(username, provider) :: super.dbIndexes
     override def validations = isEmpty(Helper.i18n("Please.enter.your.username")) _ ::
                                usernameIsValid(Helper.i18n("invalid.username")) _ ::
                                valUnique(Helper.i18n("unique.username")) _ ::
@@ -263,7 +273,7 @@ class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
             invalidMsg = Helper.i18n("please.enter.your.password")
             S.error("authuser_password_repeat", Text(Helper.i18n("please.re-enter.your.password")))
           case false =>
-            if (isValidStrongPassword(passwordValue))
+            if (validatePasswordOnCreation(passwordValue))
               invalidPw = false
             else {
               invalidPw = true
@@ -304,17 +314,18 @@ class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
    * The provider field for the User.
    */
   lazy val provider: userProvider = new userProvider()
-  class userProvider extends MappedString(this, 64) {
+  class userProvider extends MappedString(this, 100) {
     override def displayName = S.?("provider")
     override val fieldId = Some(Text("txtProvider"))
+    override def validations = validUri(this) _ :: super.validations
   }
 
 
   def getProvider() = {
     if(provider.get == null) {
-      APIUtil.getPropsValue("hostname","")
-    } else if ( provider.get == "" || provider.get == APIUtil.getPropsValue("hostname","") ) {
-      APIUtil.getPropsValue("hostname","")
+      Constant.HostName
+    } else if ( provider.get == "" || provider.get == Constant.HostName ) {
+      Constant.HostName
     } else {
       provider.get
     }
@@ -327,13 +338,6 @@ class AuthUser extends MegaProtoUser[AuthUser] with MdcLoggable {
 
   def getResourceUsersByEmail(userEmail: String) : List[ResourceUser] = {
     Users.users.vend.getUserByEmail(userEmail) match {
-      case Full(userList) => userList
-      case _ => List()
-    }
-  }
-
-  def getResourceUsers(): List[ResourceUser] = {
-    Users.users.vend.getAllUsers match {
       case Full(userList) => userList
       case _ => List()
     }
@@ -414,6 +418,8 @@ import net.liftweb.util.Helpers._
   val connector = APIUtil.getPropsValue("connector").openOrThrowException("no connector set")
   val starConnectorSupportedTypes = APIUtil.getPropsValue("starConnector_supported_types","")
 
+  override def dbIndexes: List[BaseIndex[AuthUser]] = UniqueIndex(username, provider) ::super.dbIndexes
+  
   override def emailFrom = APIUtil.getPropsValue("mail.users.userinfo.sender.address", "sender-not-set")
 
   override def screenWrap = Full(<lift:surround with="default" at="content"><lift:bind /></lift:surround>)
@@ -421,8 +427,8 @@ import net.liftweb.util.Helpers._
   override def fieldOrder = List(id, firstName, lastName, email, username, password, provider)
   override def signupFields = List(firstName, lastName, email, username, password)
 
-  // If we want to validate email addresses set this to false
-  override def skipEmailValidation = APIUtil.getPropsAsBoolValue("authUser.skipEmailValidation", true)
+  // To force validation of email addresses set this to false (default as of 29 June 2021)
+  override def skipEmailValidation = APIUtil.getPropsAsBoolValue("authUser.skipEmailValidation", false)
 
   override def loginXhtml = {
     val loginXml = Templates(List("templates-hidden","_login")).map({
@@ -455,12 +461,15 @@ import net.liftweb.util.Helpers._
     *
     */
   def getCurrentUser: Box[User] = {
-    val authorization = S.request.map(_.header("Authorization")).flatten
+    val authorization: Box[String] = S.request.map(_.header("Authorization")).flatten
+    val directLogin: Box[String] = S.request.map(_.header("DirectLogin")).flatten
     for {
       resourceUser <- if (AuthUser.currentUser.isDefined)
         //AuthUser.currentUser.get.user.foreign // this will be issue when the resource user is in remote side
         Users.users.vend.getUserByUserName(AuthUser.currentUser.openOrThrowException(ErrorMessages.attemptedToOpenAnEmptyBox).username.get)
-      else if (hasDirectLoginHeader(authorization))
+      else if (directLogin.isDefined) // Direct Login
+        DirectLogin.getUser
+      else if (hasDirectLoginHeader(authorization)) // Direct Login Deprecated
         DirectLogin.getUser
       else if (hasAnOAuthHeader(authorization)) {
         OAuthHandshake.getUser
@@ -483,11 +492,24 @@ import net.liftweb.util.Helpers._
    */
   def getCurrentUserUsername: String = {
      getCurrentUser match {
-       case Full(user) if user.provider.contains("google") => user.emailAddress
-       case Full(user) if user.provider.contains("yahoo") => user.emailAddress
+       case Full(user) if user.provider.contains("google")  && !user.emailAddress.isEmpty => user.emailAddress
+       case Full(user) if user.provider.contains("yahoo")  && !user.emailAddress.isEmpty => user.emailAddress
+       case Full(user) if user.provider.contains("microsoft")  && !user.emailAddress.isEmpty => user.emailAddress
        case Full(user) => user.name
        case _ => "" //TODO need more error handling for different user cases
      }
+  }
+  
+  def getIDTokenOfCurrentUser(): String = {
+    if(APIUtil.getPropsAsBoolValue("openid_connect.show_tokens", false)) {
+      AuthUser.currentUser match {
+        case Full(authUser) =>
+          TokensOpenIDConnect.tokens.vend.getOpenIDConnectTokenByAuthUser(authUser.id.get).map(_.idToken).getOrElse("")
+        case _ => ""
+      }
+    } else { 
+      "This information is not allowed at this instance."
+    }
   }
   
   /**
@@ -523,7 +545,7 @@ import net.liftweb.util.Helpers._
       case u if u.validated_? =>
         u.resetUniqueId().save
         //NOTE: here, if server_mode = portal, so we need modify the resetLink to portal_hostname, then developer can get proper response..
-        val resetPasswordLinkProps = APIUtil.getPropsValue("hostname", "ERROR")
+        val resetPasswordLinkProps = Constant.HostName
         val resetPasswordLink = APIUtil.getPropsValue("portal_hostname", resetPasswordLinkProps)+
           passwordResetPath.mkString("/", "/", "/")+urlEncode(u.getUniqueId())
         Mailer.sendMail(From(emailFrom),Subject(passwordResetEmailSubject + " - " + u.username),
@@ -567,7 +589,7 @@ import net.liftweb.util.Helpers._
    * Overridden to use the hostname set in the props file
    */
   override def sendValidationEmail(user: TheUserType) {
-    val resetLink = APIUtil.getPropsValue("hostname", "ERROR")+"/"+validateUserPath.mkString("/")+
+    val resetLink = Constant.HostName+"/"+validateUserPath.mkString("/")+
       "/"+urlEncode(user.getUniqueId())
 
     val email: String = user.getEmail
@@ -723,7 +745,7 @@ import net.liftweb.util.Helpers._
   def getResourceUserId(username: String, password: String): Box[Long] = {
     findUserByUsernameLocally(username) match {
       // We have a user from the local provider.
-      case Full(user) if (user.getProvider() == APIUtil.getPropsValue("hostname","")) =>
+      case Full(user) if (user.getProvider() == Constant.localIdentityProvider) =>
         if (
           user.validated_? &&
           // User is NOT locked AND the password is good
@@ -757,7 +779,7 @@ import net.liftweb.util.Helpers._
           Empty
         }
       // We have a user from an external provider.
-      case Full(user) if (user.getProvider() != APIUtil.getPropsValue("hostname","")) =>
+      case Full(user) if (user.getProvider() != Constant.localIdentityProvider) =>
         APIUtil.getPropsAsBoolValue("connector.user.authentication", false) match {
             case true if !LoginAttempt.userIsLocked(username) =>
               val userId =
@@ -918,11 +940,21 @@ def restoreSomeSessions(): Unit = {
     // variable redirect is from loginRedirect, it is set-up in OAuthAuthorisation.scala as following code:
     // val currentUrl = S.uriAndQueryString.getOrElse("/")
     // AuthUser.loginRedirect.set(Full(Helpers.appendParams(currentUrl, List((LogUserOutParam, "false")))))
-    def checkInternalRedirectAndLogUseIn(preLoginState: () => Unit, redirect: String, user: AuthUser) = {
+    def checkInternalRedirectAndLogUserIn(preLoginState: () => Unit, redirect: String, user: AuthUser) = {
       if (Helper.isValidInternalRedirectUrl(redirect)) {
         logUserIn(user, () => {
           S.notice(S.?("logged.in"))
           preLoginState()
+          if(emailDomainToSpaceMappings.nonEmpty){
+            Future{
+              tryo{AuthUser.grantEntitlementsToUseDynamicEndpointsInSpaces(user)}
+                .openOr(logger.error(s"${user} checkInternalRedirectAndLogUserIn.grantEntitlementsToUseDynamicEndpointsInSpaces throw exception! "))
+            }}
+          if(emailDomainToEntitlementMappings.nonEmpty){
+            Future{
+                tryo{AuthUser.grantEmailDomainEntitlementsToUser(user)}
+                  .openOr(logger.error(s"${user} checkInternalRedirectAndLogUserIn.grantEmailDomainEntitlementsToUser throw exception! "))
+            }}
           S.redirectTo(redirect)
         })
       } else {
@@ -932,7 +964,7 @@ def restoreSomeSessions(): Unit = {
     }
 
     def isObpProvider(user: AuthUser) = {
-      user.getProvider() == APIUtil.getPropsValue("hostname", "")
+      user.getProvider() == Constant.HostName
     }
 
     def obpUserIsValidatedAndNotLocked(usernameFromGui: String, user: AuthUser) = {
@@ -969,9 +1001,11 @@ def restoreSomeSessions(): Unit = {
                   // Reset any bad attempt
                   LoginAttempt.resetBadLoginAttempts(usernameFromGui)
                   val preLoginState = capturePreLoginState()
+                  // User init actions
+                  AfterApiAuth.innerLoginUserInitAction(Full(user))
                   logger.info("login redirect: " + loginRedirect.get)
                   val redirect = redirectUri()
-                  checkInternalRedirectAndLogUseIn(preLoginState, redirect, user)
+                  checkInternalRedirectAndLogUserIn(preLoginState, redirect, user)
                 } else { // If user is NOT locked AND password is wrong => increment bad login attempt counter.
                   LoginAttempt.incrementBadLoginAttempts(usernameFromGui)
                   S.error(Helper.i18n("invalid.login.credentials"))
@@ -994,7 +1028,9 @@ def restoreSomeSessions(): Unit = {
                   //This method is used for connector = kafka* || obpjvm*
                   //It will update the views and createAccountHolder ....
                   registeredUserHelper(user.username.get)
-                  checkInternalRedirectAndLogUseIn(preLoginState, redirect, user)
+                  // User init actions
+                  AfterApiAuth.innerLoginUserInitAction(Full(user))
+                  checkInternalRedirectAndLogUserIn(preLoginState, redirect, user)
     
               // If user cannot be found locally, try to authenticate user via connector
               case Empty if (APIUtil.getPropsAsBoolValue("connector.user.authentication", false) || 
@@ -1007,7 +1043,9 @@ def restoreSomeSessions(): Unit = {
                 externalUserHelper(usernameFromGui, passwordFromGui) match {
                     case Full(user: AuthUser) =>
                       LoginAttempt.resetBadLoginAttempts(usernameFromGui)
-                      checkInternalRedirectAndLogUseIn(preLoginState, redirect, user)
+                      // User init actions
+                      AfterApiAuth.innerLoginUserInitAction(Full(user))
+                      checkInternalRedirectAndLogUserIn(preLoginState, redirect, user)
                     case _ =>
                       LoginAttempt.incrementBadLoginAttempts(username.get)
                       Empty
@@ -1101,6 +1139,119 @@ def restoreSomeSessions(): Unit = {
       } yield v
     }
   }
+
+  /**
+   * A Space is an alias for the OBP Bank. Each Bank / Space can contain many Dynamic Endpoints. If a User belongs to a Space, 
+   * the User can use those endpoints but not modify them. If a User creates a Bank (aka Space) the user can create 
+   * and modify Dynamic Endpoints and other objects in that Bank / Space.
+   *
+   * @return
+   */
+  def mySpaces(user: AuthUser): List[BankId] = {
+    //1st: first check the user is validated
+    if (user.validated_?) {
+      //userEmail = robert.uk.29@example.com
+      // 2st get the email domain - `example.com`
+      val emailDomain = StringUtils.substringAfterLast(user.email.get, "@")
+
+      //3 return the bankIds
+      emailDomainToSpaceMappings.collectFirst {
+        case EmailDomainToSpaceMapping(`emailDomain`, ids) => ids.map(BankId(_));
+      } getOrElse Nil
+
+    } else {
+      Nil
+    }
+  }
+
+  def grantEntitlementsToUseDynamicEndpointsInSpaces(user: AuthUser) = {
+    if(emailDomainToSpaceMappings.nonEmpty) {
+      val createdByProcess = "grantEntitlementsToUseDynamicEndpointsInSpaces"
+      val userId = user.user.obj.map(_.userId).getOrElse("")
+
+      // user's already auto granted entitlements.
+      val entitlementsGrantedByThisProcess = Entitlement.entitlement.vend.getEntitlementsByUserId(userId)
+        .map(_.filter(role => role.createdByProcess == createdByProcess))
+        .getOrElse(Nil)
+
+      def alreadyHasEntitlement(role:ApiRole, bankId: String): Boolean =
+        entitlementsGrantedByThisProcess.exists(entitlement => entitlement.roleName == role.toString() && entitlement.bankId == bankId)
+
+      //call mySpaces --> get BankIds --> listOfRolesToUseAllDynamicEndpointsAOneBank (at each bank)--> Grant roles (for each role)
+      val allCurrentDynamicRoleToBankIdPairs: List[(ApiRole, String)] = for {
+        BankId(bankId) <- mySpaces(user: AuthUser)
+        role <- DynamicEndpointHelper.listOfRolesToUseAllDynamicEndpointsAOneBank(Some(bankId))
+      } yield {
+        if (!alreadyHasEntitlement(role, bankId)) {
+          Entitlement.entitlement.vend.addEntitlement(bankId, userId, role.toString, createdByProcess)
+        }
+
+        role -> bankId
+      }
+
+      // if user's auto granted entitlement invalid, delete it.
+      // invalid happens when some dynamic endpoints are removed, so the entitlements linked to the deleted dynamic endpoints are invalid. 
+      for {
+        grantedEntitlement <- entitlementsGrantedByThisProcess
+        grantedEntitlementRoleName = grantedEntitlement.roleName
+        grantedEntitlementBankId = grantedEntitlement.bankId
+      } {
+        val isInValidEntitlement = !allCurrentDynamicRoleToBankIdPairs.exists { roleToBankIdPair =>
+          val(role, roleBankId) = roleToBankIdPair
+          role.toString() == grantedEntitlementRoleName && roleBankId == grantedEntitlementBankId
+        }
+
+        if(isInValidEntitlement) {
+          Entitlement.entitlement.vend.deleteEntitlement(Full(grantedEntitlement))
+        }
+      }
+    }
+  }
+  
+  def grantEmailDomainEntitlementsToUser(user: AuthUser) = {
+    if(emailDomainToEntitlementMappings.nonEmpty){
+      val createdByProcess = "grantEmailDomainEntitlementsToUser"
+      val userId = user.user.obj.map(_.userId).getOrElse("")
+
+      // user's already auto granted entitlements.
+      val entitlementsGrantedByThisProcess = Entitlement.entitlement.vend.getEntitlementsByUserId(userId)
+        .map(_.filter(role => role.createdByProcess == createdByProcess))
+        .getOrElse(Nil)
+
+      def alreadyHasEntitlement(bankId: String, roleName:String): Boolean =
+        entitlementsGrantedByThisProcess.exists(entitlement => entitlement.roleName == roleName && entitlement.bankId == bankId)
+
+      val allEntitlementsFromCurrentProps: List[(String, String)] = for{
+        emailDomainToEntitlementMapping <- emailDomainToEntitlementMappings
+        domain = emailDomainToEntitlementMapping.domain
+        entitlement <- emailDomainToEntitlementMapping.entitlements if StringUtils.substringAfterLast(user.email.get, "@") == domain
+        roleName = entitlement.role_name
+        roleBankId = entitlement.bank_id
+      } yield {
+        if (!alreadyHasEntitlement(roleBankId, roleName)) {
+          Entitlement.entitlement.vend.addEntitlement(roleBankId, userId, roleName, createdByProcess)
+        }
+        roleName -> roleBankId
+      }
+
+      // if user's auto granted entitlement invalid, delete it.
+      // invalid happens when some dynamic endpoints are removed, so the entitlements linked to the deleted dynamic endpoints are invalid. 
+      for {
+        grantedEntitlement <- entitlementsGrantedByThisProcess
+        grantedEntitlementRoleName = grantedEntitlement.roleName
+        grantedEntitlementBankId = grantedEntitlement.bankId
+      } {
+        val isInValidEntitlement = !allEntitlementsFromCurrentProps.exists { roleNameToBankIdPair =>
+          val(roleName, roleBankId) = roleNameToBankIdPair
+          roleName == grantedEntitlementRoleName && roleBankId == grantedEntitlementBankId
+        }
+
+        if(isInValidEntitlement) {
+          Entitlement.entitlement.vend.deleteEntitlement(Full(grantedEntitlement))
+        }
+      }
+    }
+  }
   
   /**
     * This is a helper method 
@@ -1149,7 +1300,7 @@ def restoreSomeSessions(): Unit = {
     * Find the authUser by author user name(authUser and resourceUser are the same).
     * Only search for the local database. 
     */
-  protected def findUserByUsernameLocally(name: String): Box[TheUserType] = {
+  def findUserByUsernameLocally(name: String): Box[TheUserType] = {
     find(By(this.username, name))
   }
 
@@ -1159,7 +1310,7 @@ def restoreSomeSessions(): Unit = {
         Users.users.vend.getUserByUserId(userId) match {
           case Full(u) if u.name == name && u.emailAddress == email =>
             authUser.resetUniqueId().save
-            val resetLink = APIUtil.getPropsValue("hostname", "ERROR")+
+            val resetLink = Constant.HostName+
               passwordResetPath.mkString("/", "/", "/")+urlEncode(authUser.getUniqueId())
             logger.warn(s"Password reset url is created for this user: $email")
             // TODO Notify via email appropriate persons 
@@ -1169,6 +1320,24 @@ def restoreSomeSessions(): Unit = {
         case _ => ""
     }
   }
+
+  override def passwordResetXhtml = {
+    <div id="recover-password" tabindex="-1">
+      <h1>{if(S.queryString.isDefined) Helper.i18n("set.your.password") else S.?("reset.your.password")}</h1>
+      <form action={S.uri} method="post">
+        <div class="form-group">
+          <label for="password">{S.?("enter.your.new.password")}</label> <span><input id="password" class="form-control" type="password" /></span>
+        </div>
+        <div class="form-group">
+          <label for="repeatpassword">{S.?("repeat.your.new.password")}</label> <span><input id="repeatpassword" class="form-control" type="password" /></span>
+        </div>
+        <div class="form-group">
+          <input type="submit" class="btn btn-danger" />
+        </div>
+      </form>
+    </div>
+  }
+  
   /**
     * Find the authUsers by author email(authUser and resourceUser are the same).
     * Only search for the local database. 
@@ -1232,7 +1401,27 @@ def restoreSomeSessions(): Unit = {
       val bind = "type=submit" #> signupSubmitButton(signupSubmitButtonValue, testSignup _)
       bind(signupXhtml(theUser))
     }
-
-    innerSignup
+    
+    if(APIUtil.getPropsAsBoolValue("user_invitation.mandatory", false)) 
+      S.redirectTo("/user-invitation-info") 
+    else 
+      innerSignup
   }
+
+  def scrambleAuthUser(userPrimaryKey: UserPrimaryKey): Box[Boolean] = tryo {
+    AuthUser.find(By(AuthUser.user, userPrimaryKey.value)) match {
+      case Full(user) => 
+        val scrambledUser = user.firstName(Helpers.randomString(16))
+          .email(Helpers.randomString(10) + "@example.com")
+          .username("DELETED-" + Helpers.randomString(16))
+          .firstName(Helpers.randomString(16))
+          .lastName(Helpers.randomString(16))
+          .password(Helpers.randomString(40))
+          .validated(false)
+        scrambledUser.save()
+      case Empty => true // There is a resource user but no the correlated Auth user 
+      case _ => false // Error case
+    }
+  }
+  
 }

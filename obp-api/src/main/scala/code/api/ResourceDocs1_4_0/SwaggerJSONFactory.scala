@@ -16,12 +16,13 @@ import java.lang.{Boolean => XBoolean, Double => XDouble, Float => XFloat, Integ
 import java.math.{BigDecimal => JBigDecimal}
 
 import code.api.AUOpenBanking.v1_0_0.ApiCollector
+import code.api.Constant
 import code.api.Polish.v2_1_1_1.OBP_PAPI_2_1_1_1
 import code.api.STET.v1_4.OBP_STET_1_4
 import code.api.UKOpenBanking.v2_0_0.OBP_UKOpenBanking_200
 import code.api.UKOpenBanking.v3_1_0.OBP_UKOpenBanking_310
 import code.api.berlin.group.v1.OBP_BERLIN_GROUP_1
-import code.api.berlin.group.v1_3.OBP_BERLIN_GROUP_1_3
+import code.api.berlin.group.v1_3.{OBP_BERLIN_GROUP_1_3, OBP_BERLIN_GROUP_1_3_Alias}
 import com.openbankproject.commons.model.JsonFieldReName
 import net.liftweb.util.StringHelpers
 
@@ -287,6 +288,7 @@ object SwaggerJSONFactory extends MdcLoggable {
               else if (apiVersion == ApiCollector.apiVersion) 
                 "Creative Commons Attribution 3.0 Australia (CC BY 3.0 AU)"
               else if (apiVersion == OBP_BERLIN_GROUP_1_3.apiVersion  
+                || apiVersion == OBP_BERLIN_GROUP_1_3_Alias.apiVersion
                 || apiVersion == OBP_BERLIN_GROUP_1.apiVersion
               ) "Creative Commons Attribution-NoDerivatives 4.0 International (CC BY-ND)"
               else 
@@ -297,7 +299,7 @@ object SwaggerJSONFactory extends MdcLoggable {
     val infoContact = InfoContactJson("TESOBE GmbH. / Open Bank Project", "https://openbankproject.com" ,"contact@tesobe.com")
     val infoApiVersion = requestedApiVersion
     val info = InfoJson(infoTitle, infoDescription, infoContact, infoApiVersion.toString)
-    val host = APIUtil.getPropsValue("hostname", "unknown host").replaceFirst("http://", "").replaceFirst("https://", "")
+    val host = Constant.HostName.replaceFirst("http://", "").replaceFirst("https://", "")
     val basePath = "/"
     val schemas = List("http", "https")
     // Paths Object
@@ -490,13 +492,7 @@ object SwaggerJSONFactory extends MdcLoggable {
             tags = rd.tags.map(_.tag),
             summary = rd.summary,
             description = PegdownOptions.convertPegdownToHtmlTweaked(rd.description.stripMargin).replaceAll("\n", ""),
-            operationId =
-              rd.partialFunctionName match {
-                //No longer need this special case since all transaction request Resource Docs have explicit URL
-                //case "createTransactionRequest" => s"${rd.apiVersion.toString }-${rd.apiFunction.toString}-${UUID.randomUUID().toString}"
-                // Note: The operationId should not start with a number becuase Javascript constructors may use it to build variables.
-                case _ => s"${rd.implementedInApiVersion.fullyQualifiedVersion }-${rd.partialFunctionName.toString }"
-              },
+            operationId =s"${rd.implementedInApiVersion.fullyQualifiedVersion }-${rd.partialFunctionName.toString }",
             parameters ={
               val description = rd.exampleRequestBody match {
                 case EmptyBody => ""

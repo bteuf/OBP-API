@@ -28,13 +28,13 @@ TESOBE (http://www.tesobe.com/)
 package com.openbankproject.commons.model
 
 import java.util.Date
-
 import com.openbankproject.commons.model.enums.StrongCustomerAuthentication.SCA
 import com.openbankproject.commons.model.enums.StrongCustomerAuthenticationStatus.SCAStatus
 import com.openbankproject.commons.model.enums._
 import com.openbankproject.commons.util.ReflectUtils
 
 import scala.collection.immutable.List
+import scala.math.BigDecimal
 import scala.reflect.runtime.universe
 
 /**
@@ -155,6 +155,22 @@ trait AtmT {
   def locatedAt: Option[String]
   def moreInfo: Option[String]
   def hasDepositCapability: Option[Boolean]
+  
+  //These are not OBP Standard yet, only used for MXV100 now.
+  def supportedLanguages: Option[List[String]]
+  def services: Option[List[String]]
+  def accessibilityFeatures: Option[List[String]]
+  def supportedCurrencies: Option[List[String]]
+  def notes: Option[List[String]]
+  def locationCategories: Option[List[String]]
+  
+  def minimumWithdrawal: Option[String]
+  def branchIdentification: Option[String]
+  def siteIdentification: Option[String]
+  def siteName: Option[String]
+  def cashWithdrawalNationalFee: Option[String]
+  def cashWithdrawalInternationalFee: Option[String]
+  def balanceInquiryFee: Option[String]
 }
 
 // MappedBranch will implement this.
@@ -241,6 +257,21 @@ trait ProductAttribute {
   def attributeType: ProductAttributeType.Value
 
   def value: String
+
+  def isActive: Option[Boolean]
+}
+
+trait ProductFeeTrait {
+  def bankId: BankId
+  def productCode: ProductCode
+  def productFeeId: String
+  def name: String
+  def isActive: Boolean
+  def moreInfo: String
+  def currency: String
+  def amount: BigDecimal
+  def frequency: String
+  def `type`: String
 }
 
 
@@ -362,6 +393,7 @@ trait Product {
   def family : String
   def superFamily : String
   def moreInfoUrl: String
+  def termsAndConditionsUrl: String
   def details :String
   def description: String
   def meta : Meta
@@ -420,6 +452,15 @@ trait CustomerMessage {
   def message : String
   def fromDepartment : String
   def fromPerson : String
+}
+
+trait BankAttributeTrait {
+  def bankId: BankId
+  def bankAttributeId: String
+  def attributeType: BankAttributeType.Value
+  def name: String
+  def value: String
+  def isActive: Option[Boolean]
 }
 
 trait CustomerAttribute {

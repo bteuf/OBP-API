@@ -1,14 +1,17 @@
 package code.api.util
 
-import java.net.URL
+import java.net.{URI, URL}
+import java.nio.file.{Files, Paths}
 import java.text.ParseException
 
+import code.api.util.RSAUtil.logger
 import code.util.Helper.MdcLoggable
 import com.nimbusds.jose.JWSAlgorithm
 import com.nimbusds.jose.crypto.{MACVerifier, RSASSAVerifier}
+import com.nimbusds.jose.jwk.{JWK, RSAKey}
 import com.nimbusds.jose.jwk.source.{JWKSource, RemoteJWKSet}
 import com.nimbusds.jose.proc.{JWSVerificationKeySelector, SecurityContext}
-import com.nimbusds.jose.util.DefaultResourceRetriever
+import com.nimbusds.jose.util.{DefaultResourceRetriever, JSONObjectUtils}
 import com.nimbusds.jwt.proc.{BadJWTException, DefaultJWTProcessor}
 import com.nimbusds.jwt.{JWTClaimsSet, SignedJWT}
 import com.nimbusds.openid.connect.sdk.claims.IDTokenClaimsSet
@@ -19,7 +22,7 @@ object JwtUtil extends MdcLoggable {
   def getSignedPayloadAsJson(jwtToken: String): Box[String] = {
     try {
       val signedJWT = SignedJWT.parse(jwtToken)
-      val result: String = signedJWT.getJWTClaimsSet.toJSONObject().toJSONString()
+      val result: String = JSONObjectUtils.toJSONString(signedJWT.getJWTClaimsSet().toJSONObject)
       // claims extraction...
       Some(result)
     } catch {
@@ -235,7 +238,26 @@ object JwtUtil extends MdcLoggable {
     }
   }
 
+  def validateJwtWithRsaKey(jwtString: String): Boolean = {
+    val relativePath = APIUtil.getPropsValue("jwt.public_key_rsa", "")
+    val basePath = this.getClass.getResource("/").toString .replaceFirst("target[/\\\\].*$", "")
+    val filePath = new URI(s"${basePath}$relativePath").getPath
+    val publicKey = getPublicRsaKeyFromFile(filePath)
+    val signedJWT = SignedJWT.parse(jwtString)
+    val verifier = new RSASSAVerifier(publicKey)
+    signedJWT.verify(verifier)
 
+  }
+
+  def getPublicRsaKeyFromFile(path: String): RSAKey = {
+    val pathOfFile = Paths.get(path)
+    val pemEncodedRSAPubliceKey = Files.readAllLines(pathOfFile).toArray.toList.mkString("\n")
+    logger.debug(pemEncodedRSAPubliceKey)
+    // Parse PEM-encoded key to RSA public / private JWK
+    val jwk: JWK  = JWK.parseFromPEMEncodedObjects(pemEncodedRSAPubliceKey);
+    logger.debug(s"Key $path is private: " + jwk.isPrivate)
+    jwk.toPublicJWK.toRSAKey
+  }
 
 
   def main(args: Array[String]): Unit = {

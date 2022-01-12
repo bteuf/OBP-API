@@ -34,7 +34,7 @@ import com.openbankproject.commons.model._
 import net.liftweb.common.{Full, _}
 import net.liftweb.http.CurrentReq
 import net.liftweb.http.rest.RestHelper
-import net.liftweb.json.JsonAST.JValue
+import net.liftweb.json.JsonAST.{JValue, prettyRender}
 import net.liftweb.mapper.By
 import net.liftweb.util.Helpers.tryo
 
@@ -62,6 +62,10 @@ trait APIMethods200 {
   // shows a small representation of View
   private def publicBankAccountBasicListToJson(bankAccounts: List[BankAccount], publicViews : List[View]): JValue = {
     Extraction.decompose(publicBasicBankAccountList(bankAccounts, publicViews))
+  }
+  // shows a small representation of View
+  private def publicBankAccountBasicList(bankAccounts: List[BankAccount], publicViews : List[View]): List[BasicAccountJSON] = {
+    publicBasicBankAccountList(bankAccounts, publicViews)
   }
   
   // Shows accounts without view
@@ -222,22 +226,19 @@ trait APIMethods200 {
       emptyObjectJson,
       basicAccountsJSON,
       List(UserNotLoggedIn, CannotGetAccounts, UnknownError),
-      List(apiTagAccountPublic, apiTagAccount, apiTagPublicData))
-
-
-
-
-
-
+      List(apiTagAccountPublic, apiTagAccount, apiTagPublicData)
+    )
     lazy val publicAccountsAllBanks : OBPEndpoint = {
       //get public accounts for all banks
       case "accounts" :: "public" :: Nil JsonGet req => {
         cc =>
           for {
-            (publicViews, publicAccountAccesses) <- Full(Views.views.vend.publicViews)
-            publicAccountsJson <- tryo{publicBankAccountBasicListToJson(BankAccountX.publicAccounts(publicAccountAccesses), publicViews)} ?~! CannotGetAccounts
+            (publicViews, publicAccountAccesses) <- Future(Views.views.vend.publicViews)
+            publicAccountsJson <- NewStyle.function.tryons(CannotGetAccounts, 400, Some(cc)){
+              publicBankAccountBasicList(BankAccountX.publicAccounts(publicAccountAccesses), publicViews)
+            }
           } yield {
-            Full(successJsonResponse(publicAccountsJson))
+            (BasicAccountsJSON(publicAccountsJson), HttpCode.`200`(cc))
           }
       }
     }
@@ -1476,7 +1477,7 @@ trait APIMethods200 {
         cc =>
           for {
             postedData <- tryo {json.extract[CreateUserJson]} ?~! ErrorMessages.InvalidJsonFormat
-            _ <- tryo(assert(isValidStrongPassword(postedData.password))) ?~! ErrorMessages.InvalidStrongPasswordFormat
+            _ <- tryo(assert(validatePasswordOnCreation(postedData.password))) ?~! ErrorMessages.InvalidStrongPasswordFormat
           } yield {
             if (AuthUser.find(By(AuthUser.username, postedData.username)).isEmpty) {
               val userCreated = AuthUser.create
@@ -1545,7 +1546,7 @@ trait APIMethods200 {
         MeetingsNotSupported,
         UnknownError
       ),
-      List(apiTagMeeting, apiTagKyc, apiTagCustomer, apiTagUser, apiTagExperimental))
+      List(apiTagMeeting, apiTagCustomer, apiTagExperimental))
 
 
     lazy val createMeeting: OBPEndpoint = {
@@ -1602,7 +1603,7 @@ trait APIMethods200 {
         BankNotFound,
         MeetingsNotSupported,
         UnknownError),
-      List(apiTagMeeting, apiTagKyc, apiTagCustomer, apiTagUser, apiTagExperimental))
+      List(apiTagMeeting, apiTagCustomer, apiTagExperimental))
 
 
     lazy val getMeetings: OBPEndpoint = {
@@ -1659,7 +1660,7 @@ trait APIMethods200 {
         MeetingsNotSupported,
         UnknownError
       ),
-      List(apiTagMeeting, apiTagKyc, apiTagCustomer, apiTagUser, apiTagExperimental))
+      List(apiTagMeeting, apiTagKyc, apiTagCustomer, apiTagExperimental))
 
 
     lazy val getMeeting: OBPEndpoint = {
@@ -1954,18 +1955,18 @@ trait APIMethods200 {
               val msg = IncorrectRoleName + postedData.role_name + ". Possible roles are " + ApiRole.availableRoles.sorted.mkString(", ")
               x => unboxFullOrFail(x, callContext, msg)
             }
-            _ <- Helper.booleanToFuture(failMsg = if (ApiRole.valueOf(postedData.role_name).requiresBankId) EntitlementIsBankRole else EntitlementIsSystemRole) {
+            _ <- Helper.booleanToFuture(failMsg = if (ApiRole.valueOf(postedData.role_name).requiresBankId) EntitlementIsBankRole else EntitlementIsSystemRole, cc=callContext) {
               ApiRole.valueOf(postedData.role_name).requiresBankId == postedData.bank_id.nonEmpty
             }
-            allowedEntitlements = canCreateEntitlementAtOneBank :: canCreateEntitlementAtAnyBank :: Nil
-            allowedEntitlementsTxt = UserNotSuperAdmin +" or" + UserHasMissingRoles + canCreateEntitlementAtOneBank + s" BankId(${postedData.bank_id})." + " or" + UserHasMissingRoles + canCreateEntitlementAtAnyBank
+            requiredEntitlements = canCreateEntitlementAtOneBank :: canCreateEntitlementAtAnyBank :: Nil
+            requiredEntitlementsTxt = UserNotSuperAdmin +" or" + UserHasMissingRoles + canCreateEntitlementAtOneBank + s" BankId(${postedData.bank_id})." + " or" + UserHasMissingRoles + canCreateEntitlementAtAnyBank
             _ <- if(isSuperAdmin(u.userId)) Future.successful(Full(Unit))
-                  else NewStyle.function.hasAtLeastOneEntitlement(allowedEntitlementsTxt)(postedData.bank_id, u.userId, allowedEntitlements, callContext)
+                  else NewStyle.function.hasAtLeastOneEntitlement(requiredEntitlementsTxt)(postedData.bank_id, u.userId, requiredEntitlements, callContext)
 
-            _ <- Helper.booleanToFuture(failMsg = BankNotFound) {
+            _ <- Helper.booleanToFuture(failMsg = BankNotFound, cc=callContext) {
               postedData.bank_id.nonEmpty == false || BankX(BankId(postedData.bank_id), callContext).map(_._1).isEmpty == false
             }
-            _ <- Helper.booleanToFuture(failMsg = EntitlementAlreadyExists) {
+            _ <- Helper.booleanToFuture(failMsg = EntitlementAlreadyExists, cc=callContext) {
               hasEntitlement(postedData.bank_id, userId, role) == false
             }
             addedEntitlement <- Future(Entitlement.entitlement.vend.addEntitlement(postedData.bank_id, userId, postedData.role_name)) map { unboxFull(_) }
@@ -2049,7 +2050,7 @@ trait APIMethods200 {
                 entitlement <- Future(Entitlement.entitlement.vend.getEntitlementById(entitlementId)) map {
                 x => fullBoxOrException(x ~> APIFailureNewStyle(EntitlementNotFound, 404, callContext.map(_.toLight)))
               } map { unboxFull(_) }
-              _ <- Helper.booleanToFuture(UserDoesNotHaveEntitlement) { entitlement.userId == userId }
+              _ <- Helper.booleanToFuture(UserDoesNotHaveEntitlement, cc=callContext) { entitlement.userId == userId }
               deleted <- Future(Entitlement.entitlement.vend.deleteEntitlement(Some(entitlement))) map {
                 x => fullBoxOrException(x ~> APIFailureNewStyle(EntitlementCannotBeDeleted, 404, callContext.map(_.toLight)))
               } map { unboxFull(_) }

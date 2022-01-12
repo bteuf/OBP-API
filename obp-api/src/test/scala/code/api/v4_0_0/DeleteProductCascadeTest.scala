@@ -50,7 +50,9 @@ class DeleteProductCascadeTest extends V400ServerSetup {
       val response400 = makeDeleteRequest(request400)
       Then("We should get a 403")
       response400.code should equal(403)
-      response400.body.extract[ErrorMessage].message should equal(UserHasMissingRoles + CanDeleteProductCascade)
+      val errorMessage = response400.body.extract[ErrorMessage].message
+      errorMessage contains (UserHasMissingRoles) should be (true)
+      errorMessage contains (CanDeleteProductCascade.toString()) should be (true)
     }
   }
 
@@ -58,18 +60,17 @@ class DeleteProductCascadeTest extends V400ServerSetup {
     scenario("We will call the endpoint with user credentials", ApiEndpoint1, VersionOfApi) {
 
       val testBankId = randomBankId
-      val parentPostPutProductJsonV310: PostPutProductJsonV310 = SwaggerDefinitionsJSON.postPutProductJsonV310.copy(parent_product_code ="")
+      val putProductJsonV400: PutProductJsonV400 = SwaggerDefinitionsJSON.putProductJsonV400.copy(parent_product_code ="")
 
       When("We first prepare the product")
-      val product: ProductJsonV310 =
-        createProductViaEndpoint(
+      val product = createProductViaEndpoint(
           bankId = testBankId,
           code = APIUtil.generateUUID(),
-          json = parentPostPutProductJsonV310
+          json = putProductJsonV400
         )
 
       val addAccountJson = SwaggerDefinitionsJSON.createAccountRequestJsonV310
-        .copy(user_id = resourceUser1.userId, balance = AmountOfMoneyJsonV121("EUR","0"), product_code = product.code,
+        .copy(user_id = resourceUser1.userId, balance = AmountOfMoneyJsonV121("EUR","0"), product_code = product.product_code,
         account_routings = List(AccountRoutingJsonV121(Random.nextString(10), Random.nextString(10))))
       createAccountViaEndpoint(testBankId, addAccountJson, user1)
 
@@ -77,7 +78,7 @@ class DeleteProductCascadeTest extends V400ServerSetup {
       Entitlement.entitlement.vend.addEntitlement(testBankId, resourceUser1.userId, ApiRole.canDeleteProductCascade.toString)
       And("We make a request v4.0.0")
       val request400 = (v4_0_0_Request / "management" / "cascading" / "banks" / testBankId /
-        "products" / product.code).DELETE <@(user1)
+        "products" / product.product_code).DELETE <@(user1)
 
       Then("We should get a 200")
       makeDeleteRequest(request400).code should equal(200)
