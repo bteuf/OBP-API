@@ -9,7 +9,7 @@ RUN cp obp-api/src/main/resources/props/sample.props.template obp-api/src/main/r
 RUN mvn install -pl .,obp-commons
 RUN mvn install -DskipTests -pl obp-api
 
-FROM openjdk:11-jre-slim
+FROM openjdk:8-jre-alpine
 
 # Add user 
 RUN adduser -D obp
