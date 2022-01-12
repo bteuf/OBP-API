@@ -1,5 +1,5 @@
 
-FROM maven:3-jdk-8 as maven
+FROM maven:3-jdk-11 as maven
 # Build the source using maven, source is copied from the 'repo' build.
 ADD . /usr/src/OBP-API
 RUN cp /usr/src/OBP-API/obp-api/pom.xml /tmp/pom.xml # For Packaging a local repository within the image
