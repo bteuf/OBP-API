@@ -9,24 +9,9 @@ RUN cp obp-api/src/main/resources/props/sample.props.template obp-api/src/main/r
 RUN mvn install -pl .,obp-commons
 RUN mvn install -DskipTests -pl obp-api
 
-FROM openjdk:11-jre-slim-bullseye
-
-# Add user 
-RUN adduser obp
-
-# Download jetty
-RUN wget -O - https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-distribution/9.4.15.v20190215/jetty-distribution-9.4.15.v20190215.tar.gz | tar zx
-RUN mv jetty-distribution-* jetty
+FROM jetty:9.4-jre11-slim
 
 # Copy OBP source code
 # Copy build artifact (.war file) into jetty from 'maven' stage.
-COPY --from=maven /usr/src/OBP-API/obp-api/target/obp-api-*.war jetty/webapps/ROOT.war
+COPY --from=maven /usr/src/OBP-API/obp-api/target/obp-api-*.war /var/lib/jetty/webapps/ROOT.war
 
-WORKDIR jetty
-RUN chown -R  obp /jetty
-
-# Switch to the obp user (non root)
-USER obp
-
-# Starts jetty
-ENTRYPOINT ["java", "-jar", "start.jar"]
