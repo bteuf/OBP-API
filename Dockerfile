@@ -12,7 +12,7 @@ RUN mvn install -DskipTests -pl obp-api
 FROM openjdk:11-jre-slim-bullseye
 
 # Add user 
-RUN adduser -D obp
+RUN adduser obp
 
 # Download jetty
 RUN wget -O - https://repo1.maven.org/maven2/org/eclipse/jetty/jetty-distribution/9.4.15.v20190215/jetty-distribution-9.4.15.v20190215.tar.gz | tar zx

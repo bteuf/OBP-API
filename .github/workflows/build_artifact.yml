@@ -15,4 +15,5 @@ jobs:
           distribution: 'adopt'
           cache: maven
       - name: Build with Maven
+        run: mvn build -pl .,obp-commons
         run: mvn package
