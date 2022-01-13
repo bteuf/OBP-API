@@ -19,4 +19,4 @@ jobs:
           echo connector=mapped > obp-api/src/main/resources/props/test.default.props
           echo hostname=http://localhost:8016 >> obp-api/src/main/resources/props/test.default.props
           echo tests.port=8016 >> obp-api/src/main/resources/props/test.default.props
-          mvn install -pl .,obp-commons && mvn package
+          mvn package
