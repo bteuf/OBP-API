@@ -281,7 +281,7 @@
         <repository>
             <id>github</id>
             <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/tawoe/OBP-APIx</url>
+            <url>https://maven.pkg.github.com/tawoe/OBP-API</url>
         </repository>
     </distributionManagement>
 </project>
