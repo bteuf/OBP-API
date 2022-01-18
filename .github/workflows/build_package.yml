@@ -20,7 +20,6 @@ jobs:
           echo hostname=http://localhost:8016 >> obp-api/src/main/resources/props/test.default.props
           echo tests.port=8016 >> obp-api/src/main/resources/props/test.default.props
           mvn package -Dmaven.test.skip=true
-          ls -R
       - name: Build the Docker image
         run: |
           echo "${{ secrets.DOCKER_HUB_TOKEN }}" | docker login -u "${{ secrets.DOCKER_HUB_USERNAME }}" --password-stdin docker.io
