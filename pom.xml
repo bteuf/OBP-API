@@ -130,12 +130,11 @@
           <version>4.5.6</version>
           <configuration>
             <scalaVersion>${scala.compiler}</scalaVersion>
-            <charset>${project.build.sourceEncoding}</charset>
             <displayCmd>true</displayCmd>
             <jvmArgs>
               <jvmArg>-DpackageLinkDefs=file://${project.build.directory}/packageLinkDefs.properties</jvmArg>
-              <jvmArg>-Xms64m</jvmArg>
-              <jvmArg>-Xmx1024m</jvmArg>
+              <jvmArg>-Xms1024m</jvmArg>
+              <jvmArg>-Xmx4096m</jvmArg>
             </jvmArgs>
             <args>
               <arg>-unchecked</arg>
@@ -196,7 +195,7 @@
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
           <artifactId>maven-resources-plugin</artifactId>
-          <version>3.0.1</version>
+          <version>3.2.0</version>
           <executions>
             <execution>
               <id>default-copy-resources</id>
