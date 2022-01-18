@@ -303,12 +303,12 @@
     <dependency>
       <groupId>com.github.cb372</groupId>
       <artifactId>scalacache-guava_${scala.version}</artifactId>
-      <version>0.9.3</version>
+      <version>0.28.0</version>
     </dependency>
     <dependency>
       <groupId>com.github.cb372</groupId>
       <artifactId>scalacache-redis_${scala.version}</artifactId>
-      <version>0.9.3</version>
+      <version>0.28.0</version>
     </dependency>
     <dependency>
       <groupId>com.typesafe.akka</groupId>
