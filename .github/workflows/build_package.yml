@@ -16,7 +16,7 @@ jobs:
           cache: maven
       - name: Build with Maven
         run: |
-          echo -Xmx1512M -XX:MaxPermSize=512M > obp-api/src/main/resources/props/test.default.props
+          echo -Xmx2048M -XX:MaxPermSize=1048M > obp-api/src/main/resources/props/test.default.props
           echo connector=mapped >> obp-api/src/main/resources/props/test.default.props
           echo hostname=http://localhost:8019 >> obp-api/src/main/resources/props/test.default.props
           echo tests.port=8019 >> obp-api/src/main/resources/props/test.default.props
