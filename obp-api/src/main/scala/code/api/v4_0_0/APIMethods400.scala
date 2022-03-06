@@ -483,7 +483,7 @@ trait APIMethods400 {
             //1 Create or Update the `Owner` for the new account
             //2 Add permission to the user
             //3 Set the user as the account holder
-            BankAccountCreation.setAsOwner(bankId, accountId, postedOrLoggedInUser)
+            BankAccountCreation.setAccountHolderAndRefreshUserAccountAccess(bankId, accountId, postedOrLoggedInUser, callContext)
             (JSONFactory400.createSettlementAccountJson(userIdAccountOwner, bankAccount, accountAttributes), HttpCode.`201`(callContext))
           }
       }
@@ -2561,7 +2561,7 @@ trait APIMethods400 {
             //1 Create or Update the `Owner` for the new account
             //2 Add permission to the user
             //3 Set the user as the account holder
-            BankAccountCreation.setAsOwner(bankId, accountId, postedOrLoggedInUser)
+            BankAccountCreation.setAccountHolderAndRefreshUserAccountAccess(bankId, accountId, postedOrLoggedInUser, callContext)
             (JSONFactory310.createAccountJSON(userIdAccountOwner, bankAccount, accountAttributes), HttpCode.`201`(callContext))
           }
         }
@@ -4276,7 +4276,7 @@ trait APIMethods400 {
             _ <- NewStyle.function.canGrantAccessToView(bankId, accountId, cc.loggedInUser, cc.callContext)
             (user, callContext) <- NewStyle.function.findByUserId(postJson.user_id, cc.callContext)
             view <- getView(bankId, accountId, postJson.view, callContext)
-            addedView <- createAccountAccessToUser(bankId, accountId, user, view, callContext)
+            addedView <- grantAccountAccessToUser(bankId, accountId, user, view, callContext)
           } yield {
             val viewJson = JSONFactory300.createViewJSON(addedView)
             (viewJson, HttpCode.`201`(callContext))
@@ -4335,7 +4335,7 @@ trait APIMethods400 {
             _ <- NewStyle.function.canGrantAccessToView(bankId, accountId, cc.loggedInUser, cc.callContext)
             (targetUser, callContext) <- NewStyle.function.getOrCreateResourceUser(postJson.username, postJson.provider, cc.callContext)
             views <- getViews(bankId, accountId, postJson, callContext)
-            addedView <- createAccountAccessesToUser(bankId, accountId, targetUser, views, callContext)
+            addedView <- grantMultpleAccountAccessToUser(bankId, accountId, targetUser, views, callContext)
           } yield {
             val viewsJson = addedView.map(JSONFactory300.createViewJSON(_))
             (viewsJson, HttpCode.`201`(callContext))
@@ -4433,7 +4433,7 @@ trait APIMethods400 {
             }
             _ <- NewStyle.function.canRevokeAccessToView(bankId, accountId, cc.loggedInUser, cc.callContext)
             (user, callContext) <- NewStyle.function.findByUserId(cc.loggedInUser.userId, cc.callContext)
-           _ <- Future(Views.views.vend.revokeAccountAccessesByUser(bankId, accountId, user)) map {
+           _ <- Future(Views.views.vend.revokeAccountAccessByUser(bankId, accountId, user)) map {
               unboxFullOrFail(_, callContext, s"Cannot revoke")
             }
             grantViews = for (viewId <- postJson.views) yield ViewIdBankIdAccountId(ViewId(viewId), bankId, accountId)
@@ -5084,19 +5084,19 @@ trait APIMethods400 {
         cc =>
           for {
             (Full(u), bank, callContext) <- SS.userBank
-            (privateViewsUserCanAccessAtOneBank, privateAccountAccesses) = Views.views.vend.privateViewsUserCanAccessAtBank(u, bankId)
+            (privateViewsUserCanAccessAtOneBank, privateAccountAccess) = Views.views.vend.privateViewsUserCanAccessAtBank(u, bankId)
             params = req.params
-            privateAccountAccesses2 <- if(params.isEmpty || privateAccountAccesses.isEmpty) {
-              Future.successful(privateAccountAccesses)
+            privateAccountAccess2 <- if(params.isEmpty || privateAccountAccess.isEmpty) {
+              Future.successful(privateAccountAccess)
             } else {
               AccountAttributeX.accountAttributeProvider.vend
                 .getAccountIdsByParams(bankId, req.params)
                 .map { boxedAccountIds =>
                   val accountIds = boxedAccountIds.getOrElse(Nil)
-                  privateAccountAccesses.filter(aa => accountIds.contains(aa.account_id.get))
+                  privateAccountAccess.filter(aa => accountIds.contains(aa.account_id.get))
                 }
             }
-            (availablePrivateAccounts, callContext) <- bank.privateAccountsFuture(privateAccountAccesses2, callContext)
+            (availablePrivateAccounts, callContext) <- bank.privateAccountsFuture(privateAccountAccess2, callContext)
           } yield {
             val bankAccounts = Implementations2_0_0.processAccounts(privateViewsUserCanAccessAtOneBank, availablePrivateAccounts)
             (bankAccounts, HttpCode.`200`(callContext))
@@ -5716,21 +5716,42 @@ trait APIMethods400 {
                     responseBody
                   }
                 } else if (method.value.equalsIgnoreCase("delete")) {
-//                  for {
-//                    (entityName, entityIdKey, entityIdValueFromUrl) <- NewStyle.function.tryons(s"$InvalidEndpointMapping `response_mapping` must be linked to at least one valid dynamic entity!", 400, cc.callContext) {
-//                      DynamicEndpointHelper.getEntityNameKeyAndValue(responseMappingString, pathParams)
-//                    }
-//                    isDeleted <- NewStyle.function.tryons(s"$InvalidEndpointMapping `response_mapping` must be linked to at least one valid dynamic entity!", 400, cc.callContext) {
-                  //We need to delete the record by the the request key and value, 
-//                      DynamicDataProvider.connectorMethodProvider.vend.delete(entityName, entityIdValueFromUrl.head).head
-//                    }
-//                  }yield{
-//                    JBool(isDeleted)
-//                  }
-                  throw new RuntimeException(s"$NotImplemented We only support the Http Methods GET and POST . The current method is: ${method.value}")
+                  for {
+                    (entityName, entityIdKey, entityIdValueFromUrl) <- NewStyle.function.tryons(s"$InvalidEndpointMapping `response_mapping` must be linked to at least one valid dynamic entity!", 400, cc.callContext) {
+                      DynamicEndpointHelper.getEntityNameKeyAndValue(responseMappingString, pathParams)
+                    }
+                    dynamicData = DynamicDataProvider.connectorMethodProvider.vend.getAll(entityName)
+                    dynamicJsonData = JArray(dynamicData.map(it => net.liftweb.json.parse(it.dataJson)).map(_.asInstanceOf[JObject]))
+                    entityObject = DynamicEndpointHelper.getObjectByKeyValuePair(dynamicJsonData, entityIdKey, entityIdValueFromUrl.get)
+                    isDeleted <- NewStyle.function.tryons(s"$InvalidEndpointMapping `response_mapping` must be linked to at least one valid dynamic entity!", 400, cc.callContext) {
+                      val entityIdName = DynamicEntityHelper.createEntityId(entityName)
+                      val entityIdValue = (entityObject \ entityIdName).asInstanceOf[JString].s
+                      DynamicDataProvider.connectorMethodProvider.vend.delete(entityName, entityIdValue).head
+                    }
+                  }yield{
+                    JBool(isDeleted)
+                  }
                 } else if (method.value.equalsIgnoreCase("put")) {
-                
-                  throw new RuntimeException(s"$NotImplemented We only support the Http Methods GET and POST . The current method is: ${method.value}")
+                  for {
+                    (entityName, entityIdKey, entityIdValueFromUrl) <- NewStyle.function.tryons(s"$InvalidEndpointMapping `response_mapping` must be linked to at least one valid dynamic entity!", 400, cc.callContext) {
+                      DynamicEndpointHelper.getEntityNameKeyAndValue(responseMappingString, pathParams)
+                    }
+                    dynamicData = DynamicDataProvider.connectorMethodProvider.vend.getAll(entityName)
+                    dynamicJsonData = JArray(dynamicData.map(it => net.liftweb.json.parse(it.dataJson)).map(_.asInstanceOf[JObject]))
+                    entityObject = DynamicEndpointHelper.getObjectByKeyValuePair(dynamicJsonData, entityIdKey, entityIdValueFromUrl.get)
+                    _ <- NewStyle.function.tryons(s"$InvalidEndpointMapping `response_mapping` must be linked to at least one valid dynamic entity!", 400, cc.callContext) {
+                      val entityIdName = DynamicEntityHelper.createEntityId(entityName)
+                      val entityIdValue = (entityObject \ entityIdName).asInstanceOf[JString].s
+                      DynamicDataProvider.connectorMethodProvider.vend.delete(entityName, entityIdValue).head
+                    }
+                    entityBody = JsonUtils.buildJson(json,requestMappingJvalue)
+                    (box, _) <- NewStyle.function.invokeDynamicConnector(CREATE, entityName, Some(entityBody.asInstanceOf[JObject]), None, None, None, Some(cc))
+                    singleObject: JValue = unboxResult(box.asInstanceOf[Box[JValue]], entityName)
+                    responseBodyScheme = DynamicEndpointHelper.prepareMappingFields(responseMappingJvalue)
+                    responseBody = JsonUtils.buildJson(singleObject, responseBodyScheme)
+                  }yield{
+                    responseBody
+                  }
                 }else {
                   NewStyle.function.tryons(s"$InvalidEndpointMapping `request_mapping` must  be linked to at least one valid dynamic entity!", 400, cc.callContext) {
                     DynamicEndpointHelper.getEntityNameKeyAndValue(responseMappingString, pathParams)
@@ -11749,15 +11770,15 @@ trait APIMethods400 {
     Future.sequence(postJsonBody.roles.map(checkRoleName(callContext,_)))
   }
   
-  private def createAccountAccessToUser(bankId: BankId, accountId: AccountId, user: User, view: View, callContext: Option[CallContext]) = {
+  private def grantAccountAccessToUser(bankId: BankId, accountId: AccountId, user: User, view: View, callContext: Option[CallContext]) = {
     view.isSystem match {
       case true => NewStyle.function.grantAccessToSystemView(bankId, accountId, view, user, callContext)
       case false => NewStyle.function.grantAccessToCustomView(view, user, callContext)
     }
   }
-  private def createAccountAccessesToUser(bankId: BankId, accountId: AccountId, user: User, views: List[View], callContext: Option[CallContext]) = {
+  private def grantMultpleAccountAccessToUser(bankId: BankId, accountId: AccountId, user: User, views: List[View], callContext: Option[CallContext]) = {
     Future.sequence(views.map(view =>
-      createAccountAccessToUser(bankId: BankId, accountId: AccountId, user: User, view, callContext: Option[CallContext])
+      grantAccountAccessToUser(bankId: BankId, accountId: AccountId, user: User, view, callContext: Option[CallContext])
     ))
   }
   

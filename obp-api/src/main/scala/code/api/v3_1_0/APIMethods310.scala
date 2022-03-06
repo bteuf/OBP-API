@@ -1971,8 +1971,8 @@ trait APIMethods310 {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", userId, canRefreshUser, callContext)
             startTime <- Future{Helpers.now}
-            _ <- NewStyle.function.findByUserId(userId, callContext)
-            _ <- Future{refreshUserIfRequired(Full(u), callContext)} 
+            (user, callContext) <- NewStyle.function.findByUserId(userId, callContext)
+            _ = AuthUser.refreshUser(user, callContext) 
             endTime <- Future{Helpers.now}
             durationTime = endTime.getTime - startTime.getTime
           } yield {
@@ -2418,7 +2418,7 @@ trait APIMethods310 {
                     List.empty,
                     callContext)
                 }yield {
-                  BankAccountCreation.setAsOwner(bankId, accountId, u)
+                  BankAccountCreation.setAccountHolderAndRefreshUserAccountAccess(bankId, accountId, u, callContext)
                 }
               case _ => Future{""}
             }
@@ -5386,7 +5386,7 @@ trait APIMethods310 {
             //1 Create or Update the `Owner` for the new account
             //2 Add permission to the user
             //3 Set the user as the account holder
-            BankAccountCreation.setAsOwner(bankId, accountId, postedOrLoggedInUser)
+            BankAccountCreation.setAccountHolderAndRefreshUserAccountAccess(bankId, accountId, postedOrLoggedInUser, callContext)
             (JSONFactory310.createAccountJSON(userIdAccountOwner, bankAccount, accountAttributes), HttpCode.`201`(callContext))
           }
         }

@@ -64,15 +64,16 @@ import code.validation.{JsonSchemaValidationProvider, JsonValidation}
 import net.liftweb.http.JsonResponse
 import net.liftweb.util.Props
 import code.api.JsonResponseException
-import code.api.v4_0_0.dynamic.{DynamicEndpointHelper, DynamicEntityInfo}
+import code.api.v4_0_0.dynamic.{DynamicEndpointHelper, DynamicEntityHelper, DynamicEntityInfo}
 import code.bankattribute.BankAttribute
 import code.connectormethod.{ConnectorMethodProvider, JsonConnectorMethod}
 import code.dynamicMessageDoc.{DynamicMessageDocProvider, JsonDynamicMessageDoc}
 import code.dynamicResourceDoc.{DynamicResourceDocProvider, JsonDynamicResourceDoc}
 import code.endpointMapping.{EndpointMappingProvider, EndpointMappingT}
 import code.endpointTag.EndpointTagT
+import code.util.Helper.MdcLoggable
 
-object NewStyle {
+object NewStyle extends MdcLoggable{
   lazy val endpoints: List[(String, String)] = List(
     (nameOf(ImplementationsResourceDocs.getResourceDocsObp), ApiVersion.v1_4_0.toString),
     (nameOf(Implementations1_2_1.deleteWhereTagForViewOnTransaction), ApiVersion.v1_2_1.toString),
@@ -531,8 +532,8 @@ object NewStyle {
     } map { fullBoxOrException(_)
     } map { unboxFull(_) }
     
-    def revokeAllAccountAccesses(account: BankAccount, u: User, provider : String, providerId: String) = Future {
-      account.revokeAllAccountAccesses(u, provider, providerId)
+    def revokeAllAccountAccess(account: BankAccount, u: User, provider : String, providerId: String) = Future {
+      account.revokeAllAccountAccess(u, provider, providerId)
     } map { fullBoxOrException(_)
     } map { unboxFull(_) }
     
@@ -1016,6 +1017,16 @@ object NewStyle {
     def createUserAuthContext(userId: String, key: String, value: String,  callContext: Option[CallContext]): OBPReturnType[UserAuthContext] = {
       Connector.connector.vend.createUserAuthContext(userId, key, value, callContext) map {
         i => (connectorEmptyResponse(i._1, callContext), i._2)
+      } map {
+        result =>
+          //We will call the `refreshUserAccountAccess` after we successfully create the UserAuthContext
+          // because `createUserAuthContext` is a connector method, here is the entry point for OBP to refreshUserAccountAccess
+          if(callContext.isDefined && callContext.get.user.isDefined) {
+            AuthUser.refreshUser(callContext.get.user.head, callContext)
+          } else {
+            logger.info(s"AuthUser.refreshUserAccountAccess can not be run properly. The user is missing in the current callContext.")   
+          }
+          result
       }
     }
     def createUserAuthContextUpdate(userId: String, key: String, value: String, callContext: Option[CallContext]): OBPReturnType[UserAuthContextUpdate] = {
@@ -2884,10 +2895,7 @@ object NewStyle {
       // check if there is (entityIdName, entityIdValue) pair in the requestBody, if no, we will add it. 
       val requestBodyDynamicInstance: Option[JObject] = requestBody.map { requestJsonJObject =>
        
-        // (?<=[a-z0-9])(?=[A-Z]) --> mean `Positive Lookbehind (?<=[a-z0-9])` && Positive Lookahead (?=[A-Z]) --> So we can find the space to replace to  `_`
-        val regexPattern = "(?<=[a-z0-9])(?=[A-Z])|-"
-        // eg: entityName = PetEntity => entityIdName = pet_entity_id
-        val entityIdName = s"${entityName}_Id".replaceAll(regexPattern, "_").toLowerCase
+        val entityIdName = DynamicEntityHelper.createEntityId(entityName)
         
         val entityIdValue = requestJsonJObject \ entityIdName
 

@@ -20,8 +20,6 @@ import code.bankconnectors.LocalMappedConnector.setUnimplementedError
 import code.bankconnectors.akka.AkkaConnector_vDec2018
 import code.bankconnectors.rest.RestConnector_vMar2019
 import code.bankconnectors.storedprocedure.StoredProcedureConnector_vDec2019
-import code.bankconnectors.vJune2017.KafkaMappedConnector_vJune2017
-import code.bankconnectors.vMar2017.KafkaMappedConnector_vMar2017
 import code.bankconnectors.vMay2019.KafkaMappedConnector_vMay2019
 import code.bankconnectors.vSept2018.KafkaMappedConnector_vSept2018
 import code.endpointTag.EndpointTagT
@@ -82,11 +80,6 @@ object Connector extends SimpleInjector {
     "mapped" -> lazyValue(LocalMappedConnector),
     "akka_vDec2018" -> lazyValue(AkkaConnector_vDec2018),
     "mongodb" -> lazyValue(LocalRecordConnector),
-    "obpjvm" -> lazyValue(ObpJvmMappedConnector),
-    "kafka" -> lazyValue(KafkaMappedConnector),
-    "kafka_JVMcompatible" -> lazyValue(KafkaMappedConnector_JVMcompatible),
-    "kafka_vMar2017" -> lazyValue(KafkaMappedConnector_vMar2017),
-    "kafka_vJune2017" -> lazyValue(KafkaMappedConnector_vJune2017),
     "kafka_vSept2018" -> lazyValue(KafkaMappedConnector_vSept2018),
     "kafka_vMay2019" -> lazyValue(KafkaMappedConnector_vMay2019),
     "rest_vMar2019" -> lazyValue(RestConnector_vMar2019),
@@ -432,15 +425,22 @@ trait Connector extends MdcLoggable {
   def getBanks(callContext: Option[CallContext]): Future[Box[(List[Bank], Option[CallContext])]] = Future{(Failure(setUnimplementedError))}
 
   /**
-    *
-    * @param username username of the user.
-    * @return all the accounts, get from Main Frame.
-    */
+   * please see @getBankAccountsForUser
+   */
   def getBankAccountsForUserLegacy(username: String, callContext: Option[CallContext]) : Box[(List[InboundAccount], Option[CallContext])] = Failure(setUnimplementedError)
 
   /**
-    *
+    * Get Accounts from cbs, this method is mainly used for onboarding Bank Customer to OBP.
+   *  If it is CBS connector: 
+   *   the input is the username + userAuthContext (we can get it from callContext),
+   *    userAuthContext can be CustomerNumber, AccountNumber, TelephoneNumber ..., any values which CBS need to identify a bank Customer
+   *  the output is the CBS accounts belong to the user:
+   *    So far the InboundAccount.BankId, InboundAccount.AccountId and InboundAccount.viewsToGenerate are mandatory, OBP need these to 
+   *    create view and grant the account access.
+   *  If it is Mapped connector:  
+   *    OBP will return all the accounts from accountHolder
     * @param username username of the user.
+    * @param callContext inside, should contains the proper values for CBS to identify a bank Customer 
     * @return all the accounts, get from Main Frame.
     */
   def getBankAccountsForUser(username: String, callContext: Option[CallContext]) : Future[Box[(List[InboundAccount], Option[CallContext])]] = Future{
