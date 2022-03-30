@@ -47,6 +47,7 @@ object HydraUtil extends MdcLoggable{
       .openOrThrowException(s"If props $INTEGRATE_WITH_HYDRA is true, hydra_admin_url value should not be blank")
     val defaultClient = Configuration.getDefaultApiClient
     defaultClient.setBasePath(hydraAdminUrl)
+    defaultClient.setVerifyingSsl(false)
     new AdminApi(defaultClient)
   }
 
@@ -55,6 +56,7 @@ object HydraUtil extends MdcLoggable{
       .openOrThrowException(s"If props $INTEGRATE_WITH_HYDRA is true, hydra_public_url value should not be blank")
     val apiClient = new ApiClient
     apiClient.setBasePath(hydraPublicUrl)
+    apiClient.setVerifyingSsl(false)
     new PublicApi(apiClient)
   }
 
