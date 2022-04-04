@@ -17,4 +17,4 @@ jobs:
       - name: Build with Maven
         run: |
           cp obp-api/src/main/resources/props/test.default.props.template obp-api/src/main/resources/props/test.default.props
-          mvn test
+          mvn package
