@@ -17,4 +17,4 @@ jobs:
       - name: Build with Maven
         run: |
           cp obp-api/src/main/resources/props/test.default.props.template obp-api/src/main/resources/props/test.default.props
-          mvn package
+          MAVEN_OPTS="-Xmx2048m -Xms1024m -Xss2048k -XX:MaxPermSize=1024m" mvn package
