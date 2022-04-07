@@ -37,12 +37,12 @@ import code.api.v1_2_1.{BankRoutingJsonV121, JSONFactory, UserJSONV121, ViewJSON
 import code.api.v1_4_0.JSONFactory1_4_0.{LocationJsonV140, MetaJsonV140, TransactionRequestAccountJsonV140, transformToLocationFromV140, transformToMetaFromV140}
 import code.api.v2_0_0.JSONFactory200.UserJsonV200
 import code.api.v2_0_0.{CreateEntitlementJSON, EntitlementJSONs, JSONFactory200, TransactionRequestChargeJsonV200}
-import code.api.v2_1_0.{IbanJson, JSONFactory210, PostCounterpartyBespokeJson, ResourceUserJSON}
+import code.api.v2_1_0.{IbanJson, JSONFactory210, PostCounterpartyBespokeJson, ResourceUserJSON, TransactionRequestBodyCounterpartyJSON}
 import code.api.v2_2_0.CounterpartyMetadataJson
 import code.api.v3_0_0.JSONFactory300._
 import code.api.v3_0_0._
 import code.api.v3_1_0.JSONFactory310.{createAccountAttributeJson, createProductAttributesJson}
-import code.api.v3_1_0.{AccountAttributeResponseJson, PostHistoricalTransactionResponseJson, ProductAttributeResponseWithoutBankIdJson, RedisCallLimitJson}
+import code.api.v3_1_0.{AccountAttributeResponseJson, CustomerJsonV310, JSONFactory310, PostHistoricalTransactionResponseJson, ProductAttributeResponseWithoutBankIdJson, RedisCallLimitJson}
 import code.apicollection.ApiCollectionTrait
 import code.apicollectionendpoint.ApiCollectionEndpointTrait
 import code.atms.Atms.Atm
@@ -57,6 +57,7 @@ import code.standingorders.StandingOrderTrait
 import code.transactionrequests.TransactionRequests.TransactionChallengeTypes
 import code.userlocks.UserLocks
 import code.users.{UserAgreement, UserAttribute, UserInvitation}
+import code.views.system.AccountAccess
 import com.openbankproject.commons.model.{DirectDebitTrait, ProductFeeTrait, _}
 import net.liftweb.common.{Box, Full}
 import net.liftweb.json.JValue
@@ -246,6 +247,8 @@ case class FastFirehoseAccountsJsonV400(
   accounts: List[FastFirehoseAccountJsonV400]
 )
 
+case class AccountMinimalJson400(bank_id: String, account_id: String, view_id: String)
+case class AccountsMinimalJson400(accounts: List[AccountMinimalJson400])
 case class ModeratedAccountJSON400(
                                     id : String,
                                     label : String,
@@ -311,6 +314,9 @@ case class AccountBalancesJsonV400(
   balances: List[BalanceJsonV400],
   
 )
+
+case class CustomerMinimalJsonV400(bank_id: String, customer_id: String)
+case class CustomersMinimalJsonV400(customers: List[CustomerMinimalJsonV400])
 
 case class PostCustomerPhoneNumberJsonV400(mobile_phone_number: String)
 case class PostDirectDebitJsonV400(customer_id: String,
@@ -383,6 +389,26 @@ case class TransactionRequestBodySEPAJsonV400(
                                                future_date: Option[String] = None,
                                                reasons: Option[List[TransactionRequestReasonJsonV400]] = None
                                              ) extends TransactionRequestCommonBodyJSON
+case class PostSimpleCounterpartyJson400(
+  name: String,
+  description: String,
+  other_bank_routing_scheme: String,
+  other_bank_routing_address: String,
+  other_account_routing_scheme: String,
+  other_account_routing_address: String,
+  other_account_secondary_routing_scheme: String,
+  other_account_secondary_routing_address: String,
+  other_branch_routing_scheme: String,
+  other_branch_routing_address: String
+)
+
+case class TransactionRequestBodySimpleJsonV400(
+  to: PostSimpleCounterpartyJson400,
+  value: AmountOfMoneyJsonV121,
+  description: String,
+  charge_policy: String,
+  future_date: Option[String] = None
+) extends TransactionRequestCommonBodyJSON
 
 case class TransactionRequestReasonJsonV400(
                                              code: String,
@@ -449,7 +475,14 @@ case class UserWithAttributesResponseJson(
                                            username : String,
                                            user_attributes: List[UserAttributeResponseJsonV400]
                                          )
+case class CustomerAndUsersWithAttributesResponseJson(
+                                          customer: CustomerJsonV310,
+                                          users: List[UserWithAttributesResponseJson]
+                                          )
 
+case class CorrelatedEntities(
+  correlated_entities: List[CustomerAndUsersWithAttributesResponseJson]
+)
 
 case class CustomerAttributeJsonV400(
   name: String,
@@ -979,8 +1012,43 @@ case class UserJsonV400(
                        )
 case class UsersJsonV400(users: List[UserJsonV400])
 
+case class CreateMessageJsonV400(
+  message : String, 
+  transport : String,
+  from_department : String, 
+  from_person : String
+)
+
+case class CustomerMessagesJsonV400(
+  messages: List[CustomerMessageJsonV400]
+)
+
+case class CustomerMessageJsonV400(
+  id: String, 
+  date: Date, 
+  transport: String,
+  message: String, 
+  from_department: String, 
+  from_person: String
+)
+
 object JSONFactory400 {
 
+  def createCustomerMessageJson(cMessage : CustomerMessage) : CustomerMessageJsonV400 = {
+    CustomerMessageJsonV400(
+      id = cMessage.messageId,
+      date = cMessage.date,
+      transport = cMessage.transport.getOrElse(""),
+      message = cMessage.message,
+      from_department = cMessage.fromDepartment,
+      from_person = cMessage.fromPerson
+    )
+  }
+
+  def createCustomerMessagesJson(messages : List[CustomerMessage]) : CustomerMessagesJsonV400 = {
+    CustomerMessagesJsonV400(messages.map(createCustomerMessageJson))
+  }
+  
   def createUserInfoJSON(user : User, entitlements: List[Entitlement], agreements: Option[List[UserAgreement]], isLocked:Boolean) : UserJsonV400 = {
     UserJsonV400(
       user_id = user.userId,
@@ -1245,7 +1313,17 @@ object JSONFactory400 {
     )
   }
 
-
+  def createAccountMinimalJson400(accountAccess: AccountAccess): AccountMinimalJson400 = {
+    AccountMinimalJson400(
+      bank_id = accountAccess.bank_id.get,
+      account_id = accountAccess.account_id.get,
+      view_id = accountAccess.view_id.get
+    )
+  }
+  def createAccountsMinimalJson400(accountAccesses: List[AccountAccess]): AccountsMinimalJson400 = {
+    AccountsMinimalJson400(accountAccesses.map(createAccountMinimalJson400))
+  }
+  
   def createEntitlementJSONs(entitlements: List[Entitlement]): EntitlementsJsonV400 = {
     EntitlementsJsonV400(entitlements.map(entitlement => EntitlementJsonV400(
       entitlement_id = entitlement.entitlementId,
@@ -1332,6 +1410,14 @@ object JSONFactory400 {
       provider = user.provider,
       username = user.name,
       user_attributes = userAttribute.map(createUserAttributeJson(_))
+    )
+  }
+  def createCustomerAdUsersWithAttributesJson(customer: Customer,
+                                              users: List[User],
+                                              userAttribute: List[UserAttribute]) : CustomerAndUsersWithAttributesResponseJson = {
+    CustomerAndUsersWithAttributesResponseJson(
+      JSONFactory310.createCustomerJson(customer), 
+      users.map(i => createUserWithAttributesJson(i, userAttribute.filter(_.userId==i.userId)))
     )
   }
 
@@ -1840,9 +1926,11 @@ object JSONFactory400 {
       chargePolicy: String
     )
   }
-  
-  
-  
+
+
+  def createCustomersMinimalJson(customers : List[Customer]) : CustomersMinimalJsonV400 = {
+    CustomersMinimalJsonV400(customers.map(i => CustomerMinimalJsonV400(i.bankId, i.customerId)))
+  }
   
   
 }

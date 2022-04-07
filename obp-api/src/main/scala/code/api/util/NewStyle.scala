@@ -9,7 +9,7 @@ import code.DynamicEndpoint.{DynamicEndpointProvider, DynamicEndpointT}
 import code.api.APIFailureNewStyle
 import code.api.Constant.SYSTEM_READ_ACCOUNTS_BERLIN_GROUP_VIEW_ID
 import code.api.cache.Caching
-import code.api.util.APIUtil.{EntitlementAndScopeStatus, OBPReturnType, afterAuthenticateInterceptResult, canGrantAccessToViewCommon, canRevokeAccessToViewCommon, connectorEmptyResponse, createHttpParamsByUrlFuture, createQueriesByHttpParamsFuture, fullBoxOrException, generateUUID, unboxFull, unboxFullOrFail}
+import code.api.util.APIUtil.{EntitlementAndScopeStatus, OBPReturnType, afterAuthenticateInterceptResult, canGrantAccessToViewCommon, canRevokeAccessToViewCommon, connectorEmptyResponse, createHttpParamsByUrl, createHttpParamsByUrlFuture, createQueriesByHttpParamsFuture, fullBoxOrException, generateUUID, unboxFull, unboxFullOrFail}
 import code.api.util.ApiRole.canCreateAnyTransactionRequest
 import code.api.util.ErrorMessages.{InsufficientAuthorisationToCreateTransactionRequest, _}
 import code.api.ResourceDocs1_4_0.ResourceDocs140.ImplementationsResourceDocs
@@ -64,6 +64,7 @@ import code.validation.{JsonSchemaValidationProvider, JsonValidation}
 import net.liftweb.http.JsonResponse
 import net.liftweb.util.Props
 import code.api.JsonResponseException
+import code.api.v4_0_0.JSONFactory400
 import code.api.v4_0_0.dynamic.{DynamicEndpointHelper, DynamicEntityHelper, DynamicEntityInfo}
 import code.bankattribute.BankAttribute
 import code.connectormethod.{ConnectorMethodProvider, JsonConnectorMethod}
@@ -721,6 +722,11 @@ object NewStyle extends MdcLoggable{
         connectorEmptyResponse(_, callContext)
       }
     }
+    def getCustomersAtAllBanks(callContext: Option[CallContext], queryParams: List[OBPQueryParam]): OBPReturnType[List[Customer]] = {
+      Connector.connector.vend.getCustomersAtAllBanks(callContext, queryParams) map {
+        i => (connectorEmptyResponse(i._1, callContext), i._2)
+      }
+    }
     def getCustomersByCustomerPhoneNumber(bankId : BankId, phoneNumber: String, callContext: Option[CallContext]): OBPReturnType[List[Customer]] = {
       Connector.connector.vend.getCustomersByCustomerPhoneNumber(bankId, phoneNumber, callContext) map {
         i => (connectorEmptyResponse(i._1, callContext), i._2)
@@ -913,6 +919,18 @@ object NewStyle extends MdcLoggable{
       createHttpParamsByUrlFuture(url) map { unboxFull(_) }
     }
     def createObpParams(httpParams: List[HTTPParam], allowedParams: List[String], callContext: Option[CallContext]): Future[List[OBPQueryParam]] = {
+      val httpParamsAllowed = httpParams.filter(
+        x => allowedParams.contains(x.name)
+      )
+      createQueriesByHttpParamsFuture(httpParamsAllowed) map {
+        x => fullBoxOrException(x ~> APIFailureNewStyle(InvalidFilterParameterFormat, 400, callContext.map(_.toLight)))
+      } map { unboxFull(_) }
+    }
+    
+    def extractQueryParams(url: String,
+                           allowedParams: List[String],
+                           callContext: Option[CallContext]): Future[List[OBPQueryParam]] = {
+      val httpParams = createHttpParamsByUrl(url).toList.flatten
       val httpParamsAllowed = httpParams.filter(
         x => allowedParams.contains(x.name)
       )
@@ -1184,6 +1202,92 @@ object NewStyle extends MdcLoggable{
           s"$CounterpartyNotFoundByIban. Please check how do you create Counterparty, " +
             s"set the proper Iban value to `other_account_secondary_routing_address`. Current Iban = $iban. " +
             s"Check also the bankId and the accountId, Current BankId = ${bankId.value}, Current AccountId = ${accountId.value}",
+          404),
+          i._2)
+      }
+    }
+
+    def getOrCreateCounterparty(
+      name: String,
+      description: String,
+      currency: String,
+      createdByUserId: String,
+      thisBankId: String,
+      thisAccountId: String,
+      thisViewId: String,
+      otherBankRoutingScheme: String,
+      otherBankRoutingAddress: String,
+      otherBranchRoutingScheme: String,
+      otherBranchRoutingAddress: String,
+      otherAccountRoutingScheme: String,
+      otherAccountRoutingAddress: String,
+      otherAccountSecondaryRoutingScheme: String,
+      otherAccountSecondaryRoutingAddress: String,
+      callContext: Option[CallContext]
+    ) : OBPReturnType[CounterpartyTrait] =
+    {
+      Connector.connector.vend.getOrCreateCounterparty(
+        name: String,
+        description: String,
+        currency: String,
+        createdByUserId: String,
+        thisBankId: String,
+        thisAccountId: String,
+        thisViewId: String,
+        otherBankRoutingScheme: String,
+        otherBankRoutingAddress: String,
+        otherBranchRoutingScheme: String,
+        otherBranchRoutingAddress: String,
+        otherAccountRoutingScheme: String,
+        otherAccountRoutingAddress: String,
+        otherAccountSecondaryRoutingScheme: String,
+        otherAccountSecondaryRoutingAddress: String,
+        callContext: Option[CallContext]
+      ) map { i =>
+        (unboxFullOrFail(
+          i._1,
+          callContext,
+          s"$CreateCounterpartyError.",
+          404),
+          i._2)
+      }
+    }
+    
+    def getCounterpartyByRoutings(
+      otherBankRoutingScheme: String,
+      otherBankRoutingAddress: String,
+      otherBranchRoutingScheme: String,
+      otherBranchRoutingAddress: String,
+      otherAccountRoutingScheme: String,
+      otherAccountRoutingAddress: String,
+      otherAccountSecondaryRoutingScheme: String,
+      otherAccountSecondaryRoutingAddress: String,
+      callContext: Option[CallContext]
+    ) : OBPReturnType[CounterpartyTrait] =
+    {
+      Connector.connector.vend.getCounterpartyByRoutings(
+        otherBankRoutingScheme: String,
+        otherBankRoutingAddress: String,
+        otherBranchRoutingScheme: String,
+        otherBranchRoutingAddress: String,
+        otherAccountRoutingScheme: String,
+        otherAccountRoutingAddress: String,
+        otherAccountSecondaryRoutingScheme: String,
+        otherAccountSecondaryRoutingAddress: String,
+        callContext: Option[CallContext]
+      ) map { i =>
+        (unboxFullOrFail(
+          i._1,
+          callContext,
+          s"$CounterpartyNotFoundByRoutings. Current routings: " +
+            s"otherBankRoutingScheme($otherBankRoutingScheme), " +
+            s"otherBankRoutingAddress($otherBankRoutingAddress)"+
+            s"otherBranchRoutingScheme($otherBranchRoutingScheme)"+
+            s"otherBranchRoutingAddress($otherBranchRoutingAddress)"+
+            s"otherAccountRoutingScheme($otherAccountRoutingScheme)"+
+            s"otherAccountRoutingAddress($otherAccountRoutingAddress)"+
+            s"otherAccountSecondaryRoutingScheme($otherAccountSecondaryRoutingScheme)"+
+            s"otherAccountSecondaryRoutingAddress($otherAccountSecondaryRoutingAddress)"+
           404),
           i._2)
       }
@@ -1637,6 +1741,14 @@ object NewStyle extends MdcLoggable{
     def getUserAttributes(userId: String, callContext: Option[CallContext]): OBPReturnType[List[UserAttribute]] = {
       Connector.connector.vend.getUserAttributes(
         userId: String, callContext: Option[CallContext]
+      ) map {
+        i => (connectorEmptyResponse(i._1, callContext), i._2)
+      }
+    } 
+    
+    def getUserAttributesByUsers(userIds: List[String], callContext: Option[CallContext]): OBPReturnType[List[UserAttribute]] = {
+      Connector.connector.vend.getUserAttributesByUsers(
+        userIds, callContext: Option[CallContext]
       ) map {
         i => (connectorEmptyResponse(i._1, callContext), i._2)
       }
@@ -2229,7 +2341,39 @@ object NewStyle extends MdcLoggable{
         fromDepartment : String,
         fromPerson : String,
         callContext: Option[CallContext]) map {
+          i => (unboxFullOrFail(i._1, callContext, s"$InvalidConnectorResponse  Can not create message in the backend.", 400), i._2)
+      }
+    }
+
+    def createCustomerMessage(
+      customer: Customer,
+      bankId: BankId,
+      transport: String,
+      message: String,
+      fromDepartment: String,
+      fromPerson: String,
+      callContext: Option[CallContext]
+    ) : OBPReturnType[CustomerMessage] = {
+      Connector.connector.vend.createCustomerMessage(
+        customer: Customer,
+        bankId : BankId,
+        transport: String,
+        message : String,
+        fromDepartment : String,
+        fromPerson : String,
+        callContext: Option[CallContext]
+      ) map {
         i => (unboxFullOrFail(i._1, callContext, s"$InvalidConnectorResponse  Can not create message in the backend.", 400), i._2)
+      }
+    }
+    
+     def getCustomerMessages(customer : Customer, bankId : BankId, callContext: Option[CallContext]) : OBPReturnType[List[CustomerMessage]] = {
+      Connector.connector.vend.getCustomerMessages(
+        customer : Customer, 
+        bankId : BankId,
+        callContext: Option[CallContext]
+      ) map {
+        i => (unboxFullOrFail(i._1, callContext, s"$InvalidConnectorResponse  Can not get messages in the backend.", 400), i._2)
       }
     }
 
@@ -3160,8 +3304,8 @@ object NewStyle extends MdcLoggable{
     }
 
     def getPhysicalCardsForUser(user : User, callContext: Option[CallContext]) : OBPReturnType[List[PhysicalCard]] = {
-      Future{Connector.connector.vend.getPhysicalCardsForUser(user : User)} map {
-        i => (unboxFullOrFail(i, callContext, CardNotFound), callContext)
+      Connector.connector.vend.getPhysicalCardsForUser(user : User, callContext) map {
+        i => (unboxFullOrFail(i._1, callContext, s"$CardNotFound"), i._2)
       }
     }
 
@@ -3215,6 +3359,16 @@ object NewStyle extends MdcLoggable{
       Users.users.vend.getUserByUserIdFuture(userId) map {
         x => (unboxFullOrFail(x, callContext, s"$UserNotFoundByUserId Current USER_ID($userId) "),callContext)
       }
+    }
+    def getUsersByUserIds(userIds : List[String], callContext: Option[CallContext]) : OBPReturnType[List[User]] = {
+      val users = for {
+        userId <- userIds
+        user <- Users.users.vend.getUserByUserId(userId)
+        //(attributes, callContext) <- NewStyle.function.getUserAttributes(userId, callContext)
+      } yield {
+        user
+      }
+      Future(users,callContext)
     }
 
     def deleteApiCollectionById(apiCollectionId : String, callContext: Option[CallContext]) : OBPReturnType[Boolean] = {

@@ -2,7 +2,6 @@ package code.bankconnectors
 
 import java.util.Date
 import java.util.UUID.randomUUID
-
 import _root_.akka.http.scaladsl.model.HttpMethod
 import code.DynamicData.DynamicDataProvider
 import code.DynamicEndpoint.{DynamicEndpointProvider, DynamicEndpointT}
@@ -20,6 +19,7 @@ import code.api.util.ErrorMessages.{attemptedToOpenAnEmptyBox, _}
 import code.api.util._
 import code.api.v1_4_0.JSONFactory1_4_0.TransactionRequestAccountJsonV140
 import code.api.v2_1_0._
+import code.api.v4_0_0.{PostSimpleCounterpartyJson400, TransactionRequestBodySimpleJsonV400}
 import code.atms.Atms.Atm
 import code.atms.MappedAtm
 import code.bankattribute.{BankAttribute, BankAttributeX}
@@ -986,8 +986,120 @@ object LocalMappedConnector extends Connector with MdcLoggable {
     Future(Counterparties.counterparties.vend.getCounterpartyByIbanAndBankAccountId(iban, bankId, accountId), callContext)
   }
 
+  override def getCounterpartyByRoutings(
+    otherBankRoutingScheme: String,
+    otherBankRoutingAddress: String,
+    otherBranchRoutingScheme: String,
+    otherBranchRoutingAddress: String,
+    otherAccountRoutingScheme: String,
+    otherAccountRoutingAddress: String,
+    otherAccountSecondaryRoutingScheme: String,
+    otherAccountSecondaryRoutingAddress: String,
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[CounterpartyTrait]] = Future {
+    lazy val counterpartyFromRoutings= Counterparties.counterparties.vend.getCounterpartyByRoutings(
+      otherBankRoutingScheme: String,
+      otherBankRoutingAddress: String,
+      otherBranchRoutingScheme: String,
+      otherBranchRoutingAddress: String,
+      otherAccountRoutingScheme: String,
+      otherAccountRoutingAddress: String
+    )
 
-  override def getPhysicalCardsForUser(user: User): Box[List[PhysicalCard]] = {
+    lazy val counterpartyFromSecondaryRouting = Counterparties.counterparties.vend.getCounterpartyBySecondaryRouting(
+      otherAccountSecondaryRoutingScheme: String,
+      otherAccountSecondaryRoutingAddress: String
+    )
+
+    if(counterpartyFromRoutings.isDefined) {
+      (counterpartyFromRoutings, callContext)
+    } else if(counterpartyFromSecondaryRouting.isDefined) {
+      (counterpartyFromSecondaryRouting, callContext)
+    } else {
+      (Failure(CounterpartyNotFoundByRoutings), callContext)
+    }
+  
+  }
+  
+  
+  override def getOrCreateCounterparty(
+    name: String,
+    description: String,
+    currency: String,
+    createdByUserId: String,
+    thisBankId: String,
+    thisAccountId: String,
+    thisViewId: String,
+    otherBankRoutingScheme: String,
+    otherBankRoutingAddress: String,
+    otherBranchRoutingScheme: String,
+    otherBranchRoutingAddress: String,
+    otherAccountRoutingScheme: String,
+    otherAccountRoutingAddress: String,
+    otherAccountSecondaryRoutingScheme: String,
+    otherAccountSecondaryRoutingAddress: String,
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[CounterpartyTrait]] = Future {
+    
+    lazy val counterpartyFromRoutings= Counterparties.counterparties.vend.getCounterpartyByRoutings(
+      otherBankRoutingScheme: String,
+      otherBankRoutingAddress: String,
+      otherBranchRoutingScheme: String,
+      otherBranchRoutingAddress: String,
+      otherAccountRoutingScheme: String,
+      otherAccountRoutingAddress: String
+    ) 
+    
+    lazy val counterpartyFromSecondaryRouting = Counterparties.counterparties.vend.getCounterpartyBySecondaryRouting(
+      otherAccountSecondaryRoutingScheme: String,
+      otherAccountSecondaryRoutingAddress: String
+    )
+
+
+    if(counterpartyFromRoutings.isDefined) {
+      (counterpartyFromRoutings, callContext)
+    } else if(counterpartyFromSecondaryRouting.isDefined) {
+      (counterpartyFromSecondaryRouting, callContext)
+    } else{
+      val newCounterparty = for{
+        _ <- Helper.booleanToBox(
+          Counterparties.counterparties.vend.checkCounterpartyExists(
+            name: String,
+            thisBankId: String,
+            thisAccountId: String,
+            thisViewId: String
+          ).isEmpty, 
+          CounterpartyAlreadyExists.replace("value for BANK_ID or ACCOUNT_ID or VIEW_ID or NAME.",
+          s"COUNTERPARTY_NAME(${name}) for the BANK_ID(${thisBankId}) and ACCOUNT_ID(${thisAccountId}) and VIEW_ID($thisViewId)")
+        )
+        
+        counterparty <- Counterparties.counterparties.vend.createCounterparty(
+          createdByUserId = createdByUserId,
+          thisBankId = thisBankId,
+          thisAccountId = thisAccountId,
+          thisViewId = thisViewId,
+          name = name,
+          otherAccountRoutingScheme = otherAccountRoutingScheme,
+          otherAccountRoutingAddress = otherAccountRoutingAddress,
+          otherBankRoutingScheme = otherBankRoutingScheme,
+          otherBankRoutingAddress = otherBankRoutingAddress,
+          otherBranchRoutingScheme = otherBranchRoutingScheme,
+          otherBranchRoutingAddress = otherBranchRoutingAddress,
+          isBeneficiary = true,
+          otherAccountSecondaryRoutingScheme = otherAccountSecondaryRoutingScheme,
+          otherAccountSecondaryRoutingAddress = otherAccountSecondaryRoutingAddress,
+          description = description,
+          currency = currency,
+          bespoke = Nil
+        )
+      } yield{
+        counterparty
+      }
+      (newCounterparty, callContext)
+    }
+  }
+
+  override def getPhysicalCardsForUser(user: User, callContext: Option[CallContext]): OBPReturnType[Box[List[PhysicalCard]]] = Future {
     val list = code.cards.PhysicalCard.physicalCardProvider.vend.getPhysicalCards(user)
     val cardList = for (l <- list) yield
       PhysicalCard(
@@ -1013,7 +1125,7 @@ object LocalMappedConnector extends Connector with MdcLoggable {
         posted = l.posted,
         customerId = l.customerId
       )
-    Full(cardList)
+    (Full(cardList), callContext)
   }
 
   override def getPhysicalCardsForBank(bank: Bank, user: User, queryParams: List[OBPQueryParam], callContext: Option[CallContext]): OBPReturnType[Box[List[PhysicalCard]]] = Future {
@@ -3401,6 +3513,11 @@ object LocalMappedConnector extends Connector with MdcLoggable {
         )
     }
 
+  override def getCustomersAtAllBanks(callContext: Option[CallContext], queryParams: List[OBPQueryParam]): OBPReturnType[Box[List[Customer]]] =
+    CustomerX.customerProvider.vend.getCustomersAtAllBanks(queryParams) map {
+      (_, callContext)
+    }
+  
   override def getCustomers(bankId: BankId, callContext: Option[CallContext], queryParams: List[OBPQueryParam]): Future[Box[List[Customer]]] =
     CustomerX.customerProvider.vend.getCustomersFuture(bankId, queryParams)
 
@@ -3732,6 +3849,9 @@ object LocalMappedConnector extends Connector with MdcLoggable {
 
   override def getUserAttributes(userId: String, callContext: Option[CallContext]): OBPReturnType[Box[List[UserAttribute]]] = {
     UserAttributeProvider.userAttributeProvider.vend.getUserAttributesByUser(userId: String) map {(_, callContext)}
+  }
+  override def getUserAttributesByUsers(userIds: List[String], callContext: Option[CallContext]): OBPReturnType[Box[List[UserAttribute]]] = {
+    UserAttributeProvider.userAttributeProvider.vend.getUserAttributesByUsers(userIds) map {(_, callContext)}
   }
   override def createOrUpdateUserAttribute(
                                             userId: String,
@@ -4125,6 +4245,27 @@ object LocalMappedConnector extends Connector with MdcLoggable {
                              fromPerson: String,
                              callContext: Option[CallContext]): OBPReturnType[Box[CustomerMessage]] = Future {
     val boxedData = Box !! CustomerMessages.customerMessageProvider.vend.addMessage(user, bankId, message, fromDepartment, fromPerson)
+    (boxedData, callContext)
+  }
+
+  override def createCustomerMessage(
+    customer: Customer,
+    bankId : BankId,
+    transport: String,
+    message : String,
+    fromDepartment : String,
+    fromPerson : String,
+    callContext: Option[CallContext]) : OBPReturnType[Box[CustomerMessage]] = Future{
+    val boxedData = Box !! CustomerMessages.customerMessageProvider.vend.createCustomerMessage(customer, bankId, transport, message, fromDepartment, fromPerson)
+    (boxedData, callContext)
+  }
+
+  override def getCustomerMessages(
+    customer: Customer,
+    bankId: BankId,
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[List[CustomerMessage]]] = Future{
+    val boxedData = Box !! CustomerMessages.customerMessageProvider.vend.getCustomerMessages(customer, bankId)
     (boxedData, callContext)
   }
 
@@ -4988,6 +5129,55 @@ object LocalMappedConnector extends Connector with MdcLoggable {
           } yield {
             (transactionId, callContext)
           }
+        case SIMPLE =>
+          for {
+            bodyToSimple <- NewStyle.function.tryons(s"$TransactionRequestDetailsExtractException It can not extract to $TransactionRequestBodyCounterpartyJSON", 400, callContext) {
+              body.to_simple.get
+            }
+            (toCounterparty, callContext) <- NewStyle.function.getCounterpartyByRoutings(
+              bodyToSimple.otherBankRoutingScheme,
+              bodyToSimple.otherBankRoutingAddress,
+              bodyToSimple.otherBranchRoutingScheme,
+              bodyToSimple.otherBranchRoutingAddress,
+              bodyToSimple.otherAccountRoutingScheme,
+              bodyToSimple.otherAccountRoutingAddress,
+              bodyToSimple.otherAccountSecondaryRoutingScheme,
+              bodyToSimple.otherAccountSecondaryRoutingAddress,
+              callContext
+            )
+            toAccount <- NewStyle.function.getBankAccountFromCounterparty(toCounterparty, true, callContext)
+            counterpartyBody = TransactionRequestBodySimpleJsonV400(
+              to = PostSimpleCounterpartyJson400(
+                name = toCounterparty.name,
+                description = toCounterparty.description,
+                other_bank_routing_scheme = toCounterparty.otherBankRoutingScheme,
+                other_bank_routing_address = toCounterparty.otherBankRoutingAddress,
+                other_account_routing_scheme = toCounterparty.otherAccountRoutingScheme,
+                other_account_routing_address = toCounterparty.otherAccountRoutingAddress,
+                other_account_secondary_routing_scheme = toCounterparty.otherAccountSecondaryRoutingScheme,
+                other_account_secondary_routing_address = toCounterparty.otherAccountSecondaryRoutingAddress,
+                other_branch_routing_scheme = toCounterparty.otherBranchRoutingScheme,
+                other_branch_routing_address = toCounterparty.otherBranchRoutingAddress,
+              ),
+              value = AmountOfMoneyJsonV121(body.value.currency, body.value.amount),
+              description = body.description,
+              charge_policy = transactionRequest.charge_policy,
+              future_date = transactionRequest.future_date
+            )
+            (transactionId, callContext) <- NewStyle.function.makePaymentv210(
+              fromAccount,
+              toAccount,
+              transactionRequest.id,
+              transactionRequestCommonBody = counterpartyBody,
+              BigDecimal(counterpartyBody.value.amount),
+              counterpartyBody.description,
+              TransactionRequestType(transactionRequestType),
+              transactionRequest.charge_policy,
+              callContext
+            )
+          } yield {
+            (transactionId, callContext)
+          }
         // In the case of a REFUND (currently working only implemented for SEPA refund request)
         case REFUND =>
           for {
@@ -5320,4 +5510,42 @@ object LocalMappedConnector extends Connector with MdcLoggable {
 
   override def checkAnswer(authContextUpdateId: String, challenge: String, callContext: Option[CallContext]) = 
     UserAuthContextUpdateProvider.userAuthContextUpdateProvider.vend.checkAnswer(authContextUpdateId, challenge) map { ( _, callContext) }
+
+  override def sendCustomerNotification(
+    scaMethod: StrongCustomerAuthentication,
+    recipient: String,
+    subject: Option[String], //Only for EMAIL, SMS do not need it, so here it is Option
+    message: String,
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[String]] = {
+    if (scaMethod == StrongCustomerAuthentication.EMAIL){ // Send the email
+      val params = PlainMailBodyType(message) :: List(To(recipient))
+      Mailer.sendMail(From("challenge@tesobe.com"), Subject("OBP Consent Challenge"), params :_*)
+      Future{(Full("Success"), callContext)}
+    } else if (scaMethod == StrongCustomerAuthentication.SMS){ // Send the SMS
+      for {
+        phoneNumber <- Future.successful(recipient)
+        failMsg =s"$MissingPropsValueAtThisInstance sca_phone_api_key"
+        smsProviderApiKey <- NewStyle.function.tryons(failMsg, 400, callContext) {
+          APIUtil.getPropsValue("sca_phone_api_key").openOrThrowException(s"")
+        }
+        failMsg = s"$MissingPropsValueAtThisInstance sca_phone_api_secret"
+        smsProviderApiSecret <- NewStyle.function.tryons(failMsg, 400, callContext) {
+          APIUtil.getPropsValue("sca_phone_api_secret").openOrThrowException(s"")
+        }
+        client = new NexmoClient.Builder()
+          .apiKey(smsProviderApiKey)
+          .apiSecret(smsProviderApiSecret)
+          .build();
+        messageSent = new TextMessage("OBP-API", phoneNumber, message);
+        response <- Future{client.getSmsClient().submitMessage(messageSent)}
+        failMsg = s"$SmsServerNotResponding: $phoneNumber. Or Please to use EMAIL first."
+        _ <- Helper.booleanToFuture(failMsg, cc=callContext) {
+          response.getMessages.get(0).getStatus == com.nexmo.client.sms.MessageStatus.OK
+        }
+      }yield Future{(Full("Success"), callContext)}
+    } else
+      Future{(Full("Success"), callContext)}
+  }
+  
 }

@@ -6,6 +6,7 @@ import java.util.{Calendar, Date}
 import code.DynamicData.{DynamicData, DynamicDataProvider}
 import code.DynamicEndpoint.DynamicEndpointSwagger
 import code.accountattribute.AccountAttributeX
+import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON
 import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON.{jsonDynamicResourceDoc, _}
 import code.api.util.APIUtil.{fullBoxOrException, _}
 import code.api.util.ApiRole.{canCreateEntitlementAtAnyBank, _}
@@ -15,18 +16,20 @@ import code.api.util.ErrorMessages._
 import code.api.util.ExampleValue._
 import code.api.util.Glossary.getGlossaryItem
 import code.api.util.NewStyle.HttpCode
+import code.api.util.NewStyle.function.{isValidCurrencyISOCode => isValidCurrencyISOCodeNS, _}
 import code.api.util._
 import code.api.util.migration.Migration
 import code.api.util.newstyle.AttributeDefinition._
 import code.api.util.newstyle.Consumer._
 import code.api.util.newstyle.UserCustomerLinkNewStyle
+import code.api.util.newstyle.UserCustomerLinkNewStyle.getUserCustomerLinks
 import code.api.v1_2_1.{JSONFactory, PostTransactionTagJSON}
 import code.api.v1_4_0.JSONFactory1_4_0
 import code.api.v1_4_0.JSONFactory1_4_0.TransactionRequestAccountJsonV140
 import code.api.v2_0_0.OBPAPI2_0_0.Implementations2_0_0
-import code.api.v2_0_0.{CreateEntitlementJSON, EntitlementJSONs, JSONFactory200}
+import code.api.v2_0_0.{CreateEntitlementJSON, CreateUserCustomerLinkJson, EntitlementJSONs, JSONFactory200}
 import code.api.v2_1_0._
-import code.api.v3_0_0.JSONFactory300
+import code.api.v3_0_0.{CreateScopeJson, JSONFactory300}
 import code.api.v3_1_0._
 import code.api.v4_0_0.JSONFactory400._
 import code.api.v4_0_0.dynamic.DynamicEndpointHelper.DynamicReq
@@ -50,12 +53,14 @@ import code.metadata.tags.Tags
 import code.model.dataAccess.{AuthUser, BankAccountCreation}
 import code.model.{toUserExtended, _}
 import code.ratelimiting.RateLimitingDI
+import code.scope.Scope
 import code.snippet.{WebUIPlaceholder, WebUITemplate}
 import code.transactionChallenge.MappedExpectedChallengeAnswer
 import code.transactionrequests.MappedTransactionRequestProvider
 import code.transactionrequests.TransactionRequests.TransactionChallengeTypes._
 import code.transactionrequests.TransactionRequests.TransactionRequestTypes
 import code.transactionrequests.TransactionRequests.TransactionRequestTypes.{apply => _, _}
+import code.usercustomerlinks.UserCustomerLink
 import code.userlocks.UserLocksProvider
 import code.users.Users
 import code.util.Helper.booleanToFuture
@@ -354,7 +359,7 @@ trait APIMethods400 {
         UnknownError
       ),
       List(apiTagTransaction, apiTagNewStyle),
-      Some(List(canGetDoubleEntryTransactionAtOneBank))
+      Some(List(canGetDoubleEntryTransactionAtAnyBank, canGetDoubleEntryTransactionAtOneBank))
     )
 
     lazy val getDoubleEntryTransaction : OBPEndpoint = {
@@ -708,6 +713,43 @@ trait APIMethods400 {
       ),
       List(apiTagTransactionRequest, apiTagPSD2PIS, apiTagPsd2, apiTagNewStyle))
 
+    // SIMPLE
+    staticResourceDocs += ResourceDoc(
+      createTransactionRequestSimple,
+      implementedInApiVersion,
+      nameOf(createTransactionRequestSimple),
+      "POST",
+      "/banks/BANK_ID/accounts/ACCOUNT_ID/VIEW_ID/transaction-request-types/SIMPLE/transaction-requests",
+      "Create Transaction Request (SIMPLE)",
+      s"""
+         |Special instructions for SIMPLE:
+         |
+         |You can transfer money to the Bank Account Number or Iban directly. 
+         |
+         |$transactionRequestGeneralText
+         |
+       """.stripMargin,
+      transactionRequestBodySimpleJsonV400,
+      transactionRequestWithChargeJSON400,
+      List(
+        $UserNotLoggedIn,
+        InvalidBankIdFormat,
+        InvalidAccountIdFormat,
+        InvalidJsonFormat,
+        $BankNotFound,
+        AccountNotFound,
+        $BankAccountNotFound,
+        InsufficientAuthorisationToCreateTransactionRequest,
+        InvalidTransactionRequestType,
+        InvalidJsonFormat,
+        InvalidNumber,
+        NotPositiveAmount,
+        InvalidTransactionRequestCurrency,
+        TransactionDisabled,
+        UnknownError
+      ),
+      List(apiTagTransactionRequest, apiTagPSD2PIS, apiTagPsd2, apiTagNewStyle))
+
 
     val lowAmount = AmountOfMoneyJsonV121("EUR", "12.50")
     val sharedChargePolicy = ChargePolicy.withName("SHARED")
@@ -835,6 +877,7 @@ trait APIMethods400 {
     lazy val createTransactionRequestCounterparty = createTransactionRequest
     lazy val createTransactionRequestRefund = createTransactionRequest
     lazy val createTransactionRequestFreeForm = createTransactionRequest
+    lazy val createTransactionRequestSimple = createTransactionRequest
 
     // This handles the above cases
     lazy val createTransactionRequest: OBPEndpoint = {
@@ -857,8 +900,12 @@ trait APIMethods400 {
             _ <- if (u.hasOwnerViewAccess(BankIdAccountId(bankId, accountId))) Future.successful(Full(Unit))
             else NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canCreateAnyTransactionRequest, callContext, InsufficientAuthorisationToCreateTransactionRequest)
 
-            _ <- Helper.booleanToFuture(s"${InvalidTransactionRequestType}: '${transactionRequestType.value}'", cc=callContext) {
+            _ <- Helper.booleanToFuture(s"${InvalidTransactionRequestType}: '${transactionRequestType.value}'. Current Sandbox does not support it. ", cc=callContext) {
               APIUtil.getPropsValue("transactionRequests_supported_types", "").split(",").contains(transactionRequestType.value)
+            }
+
+            transactionRequestTypeValue <- NewStyle.function.tryons(s"$InvalidTransactionRequestType: '${transactionRequestType.value}'. OBP does not support it.", 400, callContext) {
+              TransactionRequestTypes.withName(transactionRequestType.value)
             }
 
             // Check the input JSON format, here is just check the common parts of all four types
@@ -883,7 +930,7 @@ trait APIMethods400 {
               isValidCurrencyISOCode(transDetailsJson.value.currency)
             }
 
-            (createdTransactionRequest, callContext) <- TransactionRequestTypes.withName(transactionRequestType.value) match {
+            (createdTransactionRequest, callContext) <- transactionRequestTypeValue match {
               case REFUND => {
                 for {
                   transactionRequestBodyRefundJson <- NewStyle.function.tryons(s"${InvalidJsonFormat}, it should be $ACCOUNT json format", 400, callContext) {
@@ -1071,6 +1118,58 @@ trait APIMethods400 {
                     toAccount,
                     transactionRequestType,
                     transactionRequestBodyCounterparty,
+                    transDetailsSerialized,
+                    chargePolicy,
+                    Some(OTP_VIA_API.toString),
+                    getScaMethodAtInstance(transactionRequestType.value).toOption,
+                    None,
+                    None,
+                    callContext)
+                } yield (createdTransactionRequest, callContext)
+
+              }
+              case SIMPLE => {
+                for {
+                  //For SAMPLE, we will create/get toCounterparty on site and set up the toAccount
+                  transactionRequestBodySimple <- NewStyle.function.tryons(s"${InvalidJsonFormat}, it should be $SIMPLE json format", 400, callContext) {
+                    json.extract[TransactionRequestBodySimpleJsonV400]
+                  }
+                  (toCounterparty, callContext) <- NewStyle.function.getOrCreateCounterparty(
+                    name = transactionRequestBodySimple.to.name,
+                    description = transactionRequestBodySimple.to.description,
+                    currency = transactionRequestBodySimple.value.currency,
+                    createdByUserId = u.userId,
+                    thisBankId = bankId.value,
+                    thisAccountId = accountId.value,
+                    thisViewId = viewId.value,
+                    otherBankRoutingScheme = transactionRequestBodySimple.to.other_bank_routing_scheme,
+                    otherBankRoutingAddress = transactionRequestBodySimple.to.other_bank_routing_address,
+                    otherBranchRoutingScheme = transactionRequestBodySimple.to.other_branch_routing_scheme,
+                    otherBranchRoutingAddress = transactionRequestBodySimple.to.other_branch_routing_address,
+                    otherAccountRoutingScheme = transactionRequestBodySimple.to.other_account_routing_scheme,
+                    otherAccountRoutingAddress = transactionRequestBodySimple.to.other_account_routing_address,
+                    otherAccountSecondaryRoutingScheme = transactionRequestBodySimple.to.other_account_secondary_routing_scheme,
+                    otherAccountSecondaryRoutingAddress = transactionRequestBodySimple.to.other_account_secondary_routing_address,
+                    callContext: Option[CallContext],
+                  )
+                  toAccount <- NewStyle.function.getBankAccountFromCounterparty(toCounterparty, true, callContext)
+                  // Check we can send money to it.
+                  _ <- Helper.booleanToFuture(s"$CounterpartyBeneficiaryPermit", cc=callContext) {
+                    toCounterparty.isBeneficiary
+                  }
+                  chargePolicy = transactionRequestBodySimple.charge_policy
+                  _ <- Helper.booleanToFuture(s"$InvalidChargePolicy", cc=callContext) {
+                    ChargePolicy.values.contains(ChargePolicy.withName(chargePolicy))
+                  }
+                  transDetailsSerialized <- NewStyle.function.tryons(UnknownError, 400, callContext) {
+                    write(transactionRequestBodySimple)(Serialization.formats(NoTypeHints))
+                  }
+                  (createdTransactionRequest, callContext) <- NewStyle.function.createTransactionRequestv400(u,
+                    viewId,
+                    fromAccount,
+                    toAccount,
+                    transactionRequestType,
+                    transactionRequestBodySimple,
                     transDetailsSerialized,
                     chargePolicy,
                     Some(OTP_VIA_API.toString),
@@ -5171,6 +5270,145 @@ trait APIMethods400 {
       }
     }
 
+
+    staticResourceDocs += ResourceDoc(
+      getCustomersAtAnyBank,
+      implementedInApiVersion,
+      nameOf(getCustomersAtAnyBank),
+      "GET",
+      "/customers",
+      "Get Customers at Any Bank",
+      s"""Get Customers at Any Bank.
+         |
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+         |""",
+      emptyObjectJson,
+      customersJsonV300,
+      List(
+        UserNotLoggedIn,
+        UserCustomerLinksNotFoundForUser,
+        UnknownError
+      ),
+      List(apiTagCustomer, apiTagUser, apiTagNewStyle),
+      Some(List(canGetCustomersAtAnyBank))
+    )
+    lazy val getCustomersAtAnyBank : OBPEndpoint = {
+      case "customers" :: Nil JsonGet _ => {
+        cc => {
+          for {
+            requestParams <- extractQueryParams(cc.url, List("limit","offset","sort_direction"), cc.callContext)
+            (customers, callContext) <- getCustomersAtAllBanks(cc.callContext, requestParams)
+          } yield {
+            (JSONFactory300.createCustomersJson(customers.sortBy(_.bankId)), HttpCode.`200`(callContext))
+          }
+        }
+      }
+    }
+
+    staticResourceDocs += ResourceDoc(
+      getCustomersMinimalAtAnyBank,
+      implementedInApiVersion,
+      nameOf(getCustomersMinimalAtAnyBank),
+      "GET",
+      "/customers/minimal",
+      "Get Customers Minimal at Any Bank",
+      s"""Get Customers Minimal at Any Bank.
+         |
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+         |""",
+      emptyObjectJson,
+      customersMinimalJsonV300,
+      List(
+        UserNotLoggedIn,
+        UserCustomerLinksNotFoundForUser,
+        UnknownError
+      ),
+      List(apiTagCustomer, apiTagUser, apiTagNewStyle),
+      Some(List(canGetCustomersMinimalAtAnyBank))
+    )
+    lazy val getCustomersMinimalAtAnyBank : OBPEndpoint = {
+      case "customers" :: "minimal" :: Nil JsonGet _ => {
+        cc => {
+          for {
+            requestParams <- extractQueryParams(cc.url, List("limit","offset","sort_direction"), cc.callContext)
+            (customers, callContext) <- getCustomersAtAllBanks(cc.callContext, requestParams)
+          } yield {
+            (createCustomersMinimalJson(customers.sortBy(_.bankId)), HttpCode.`200`(callContext))
+          }
+        }
+      }
+    }
+
+
+    staticResourceDocs += ResourceDoc(
+      addScope,
+      implementedInApiVersion,
+      nameOf(addScope),
+      "POST",
+      "/consumers/CONSUMER_ID/scopes",
+      "Create Scope for a Consumer",
+      """Create Scope. Grant Role to Consumer.
+        |
+        |Scopes are used to grant System or Bank level roles to the Consumer (App). (For Account level privileges, see Views)
+        |
+        |For a System level Role (.e.g CanGetAnyUser), set bank_id to an empty string i.e. "bank_id":""
+        |
+        |For a Bank level Role (e.g. CanCreateAccount), set bank_id to a valid value e.g. "bank_id":"my-bank-id"
+        |
+        |""",
+      SwaggerDefinitionsJSON.createScopeJson,
+      scopeJson,
+      List(
+        UserNotLoggedIn,
+        ConsumerNotFoundById,
+        InvalidJsonFormat,
+        IncorrectRoleName,
+        EntitlementIsBankRole,
+        EntitlementIsSystemRole,
+        EntitlementAlreadyExists,
+        UnknownError
+      ),
+      List(apiTagScope, apiTagConsumer, apiTagNewStyle),
+      Some(List(canCreateScopeAtAnyBank, canCreateScopeAtOneBank)))
+
+    lazy val addScope : OBPEndpoint = {
+      case "consumers" :: consumerId :: "scopes" :: Nil JsonPost json -> _ => {
+        cc =>
+          for {
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            consumer <- NewStyle.function.getConsumerByConsumerId(consumerId, callContext)
+            postedData <- Future { tryo{json.extract[CreateScopeJson]} } map {
+              val msg = s"$InvalidJsonFormat The Json body should be the $CreateScopeJson "
+              x => unboxFullOrFail(x, callContext, msg)
+            }
+            role <- Future { tryo{valueOf(postedData.role_name)} } map {
+              val msg = IncorrectRoleName + postedData.role_name + ". Possible roles are " + ApiRole.availableRoles.sorted.mkString(", ")
+              x => unboxFullOrFail(x, callContext, msg)
+            }
+            _ <- Helper.booleanToFuture(failMsg = if (ApiRole.valueOf(postedData.role_name).requiresBankId) EntitlementIsBankRole else EntitlementIsSystemRole, cc=callContext) {
+              ApiRole.valueOf(postedData.role_name).requiresBankId == postedData.bank_id.nonEmpty
+            }
+            allowedEntitlements = canCreateScopeAtOneBank :: canCreateScopeAtAnyBank :: Nil
+            allowedEntitlementsTxt = s"$UserHasMissingRoles ${allowedEntitlements.mkString(", ")}!"
+            _ <- NewStyle.function.hasAtLeastOneEntitlement(failMsg = allowedEntitlementsTxt)(postedData.bank_id, u.userId, allowedEntitlements, callContext)
+            _ <- Helper.booleanToFuture(failMsg = BankNotFound, cc=callContext) {
+              postedData.bank_id.nonEmpty == false || BankX(BankId(postedData.bank_id), callContext).map(_._1).isEmpty == false
+            }
+            _ <- Helper.booleanToFuture(failMsg = EntitlementAlreadyExists, cc=callContext) {
+              hasScope(postedData.bank_id, consumerId, role) == false
+            }
+            addedEntitlement <- Future {Scope.scope.vend.addScope(postedData.bank_id, consumer.id.get.toString, postedData.role_name)} map { unboxFull(_) }
+          } yield {
+            (JSONFactory300.createScopeJson(addedEntitlement), HttpCode.`201`(callContext))
+          }
+      }
+    }
+    
+
     val customerAttributeGeneralInfo =
       s"""
          |CustomerAttributes are used to enhance the OBP Customer object with Bank specific entities.
@@ -7234,7 +7472,7 @@ trait APIMethods400 {
       case "banks" :: BankId(bankId) :: "user_customer_links" :: "users" :: userId :: Nil JsonGet _ => {
         cc =>
           for {
-            (userCustomerLinks, callContext) <- UserCustomerLinkNewStyle.getUserCustomerLink(
+            (userCustomerLinks, callContext) <- UserCustomerLinkNewStyle.getUserCustomerLinksByUserId(
               userId,
               cc.callContext
             )
@@ -7243,6 +7481,69 @@ trait APIMethods400 {
           }
       }
     }
+    
+    staticResourceDocs += ResourceDoc(
+      createUserCustomerLinks,
+      implementedInApiVersion,
+      "createUserCustomerLinks",
+      "POST",
+      "/banks/BANK_ID/user_customer_links",
+      "Create User Customer Link",
+      s"""Link a User to a Customer
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+         |""",
+      createUserCustomerLinkJson,
+      userCustomerLinkJson,
+      List(
+        $UserNotLoggedIn,
+        InvalidBankIdFormat,
+        $BankNotFound,
+        InvalidJsonFormat,
+        CustomerNotFoundByCustomerId,
+        UserHasMissingRoles,
+        CustomerAlreadyExistsForUser,
+        CreateUserCustomerLinksError,
+        UnknownError
+      ),
+      List(apiTagCustomer, apiTagUser),
+      Some(List(canCreateUserCustomerLinkAtAnyBank, canCreateUserCustomerLink)))
+
+    lazy val createUserCustomerLinks : OBPEndpoint = {
+      case "banks" :: BankId(bankId):: "user_customer_links" :: Nil JsonPost json -> _ => {
+        cc =>
+          for {
+            _ <- NewStyle.function.tryons(s"$InvalidBankIdFormat", 400, cc.callContext) {
+              assert(isValidID(bankId.value))
+            }
+            postedData <- NewStyle.function.tryons(s"$InvalidJsonFormat The Json body should be the $CreateUserCustomerLinkJson ", 400, cc.callContext) {
+              json.extract[CreateUserCustomerLinkJson]
+            }
+            user <- Users.users.vend.getUserByUserIdFuture(postedData.user_id) map {
+              x => unboxFullOrFail(x, cc.callContext, UserNotFoundByUserId, 404)
+            }
+            _ <- booleanToFuture("Field customer_id is not defined in the posted json!", 400, cc.callContext) {
+              postedData.customer_id.nonEmpty
+            }
+            (customer, callContext) <- NewStyle.function.getCustomerByCustomerId(postedData.customer_id, cc.callContext)
+            _ <- booleanToFuture(s"Bank of the customer specified by the CUSTOMER_ID(${customer.bankId}) has to matches BANK_ID(${bankId.value}) in URL", 400, callContext) {
+              customer.bankId == bankId.value
+            }
+            _ <- booleanToFuture(CustomerAlreadyExistsForUser, 400, callContext) {
+              UserCustomerLink.userCustomerLink.vend.getUserCustomerLink(postedData.user_id, postedData.customer_id).isEmpty == true
+            }
+            userCustomerLink <- Future {
+              UserCustomerLink.userCustomerLink.vend.createUserCustomerLink(postedData.user_id, postedData.customer_id, new Date(), true)
+            } map {
+              x => unboxFullOrFail(x, callContext, CreateUserCustomerLinksError, 400)
+            }
+          } yield {
+            (code.api.v2_0_0.JSONFactory200.createUserCustomerLinkJSON(userCustomerLink), HttpCode.`201`(callContext))
+          }
+      }
+    }
+    
 
     staticResourceDocs += ResourceDoc(
       getUserCustomerLinksByCustomerId,
@@ -7270,12 +7571,201 @@ trait APIMethods400 {
       case "banks" :: BankId(bankId) :: "user_customer_links" :: "customers" :: customerId :: Nil JsonGet _ => {
         cc =>
           for {
-            (userCustomerLinks, callContext) <- UserCustomerLinkNewStyle.getUserCustomerLinks(
-              customerId,
-              cc.callContext
-            )
+            (userCustomerLinks, callContext) <- getUserCustomerLinks(customerId, cc.callContext)
           } yield {
             (JSONFactory200.createUserCustomerLinkJSONs(userCustomerLinks), HttpCode.`200`(callContext))
+          }
+      }
+    }    
+
+    staticResourceDocs += ResourceDoc(
+      getCorrelatedUsersInfoByCustomerId,
+      implementedInApiVersion,
+      nameOf(getCorrelatedUsersInfoByCustomerId),
+      "GET",
+      "/banks/BANK_ID/customers/CUSTOMER_ID/correlated-users",
+      "Get Correlated User Info by Customer",
+      s"""Get Correlated User Info by CUSTOMER_ID
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+         |""",
+      EmptyBody,
+      customerAndUsersWithAttributesResponseJson,
+      List(
+        $UserNotLoggedIn,
+        $BankNotFound,
+        UnknownError
+      ),
+      List(apiTagCustomer, apiTagNewStyle),
+      Some(List(canGetCorrelatedUsersInfoAtAnyBank, canGetCorrelatedUsersInfo)))
+
+    lazy val getCorrelatedUsersInfoByCustomerId : OBPEndpoint = {
+      case "banks" :: BankId(bankId) :: "customers" :: customerId :: "correlated-users" :: Nil JsonGet _ => {
+        cc =>
+          for {
+            (customer, callContext) <- NewStyle.function.getCustomerByCustomerId(customerId, cc.callContext)
+            (userCustomerLinks, callContext) <- getUserCustomerLinks(customerId, callContext)
+            (users, callContext) <- NewStyle.function.getUsersByUserIds(userCustomerLinks.map(_.userId), callContext)
+            (attributes, callContext) <- NewStyle.function.getUserAttributesByUsers(userCustomerLinks.map(_.userId), callContext)
+          } yield {
+            (JSONFactory400.createCustomerAdUsersWithAttributesJson(customer, users, attributes), HttpCode.`200`(callContext))
+          }
+      }
+    }
+
+    staticResourceDocs += ResourceDoc(
+      getMyCorrelatedEntities,
+      implementedInApiVersion,
+      nameOf(getMyCorrelatedEntities),
+      "GET",
+      "/my/correlated-entities",
+      "Get Correlated Entities for the current User",
+      s"""Correlated Entities are users and customers linked to the currently authenticated user via User-Customer-Links
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+         |""",
+      EmptyBody,
+      correlatedUsersResponseJson,
+      List(
+        $UserNotLoggedIn,
+        $BankNotFound,
+        UnknownError
+      ),
+      List(apiTagCustomer, apiTagNewStyle))
+
+    private def getCorrelatedUsersInfo(userCustomerLink:UserCustomerLink, callContext: Option[CallContext]) = for {
+      (customer, callContext) <- NewStyle.function.getCustomerByCustomerId(userCustomerLink.customerId, callContext)
+      (userCustomerLinks, callContext) <- getUserCustomerLinks(userCustomerLink.customerId, callContext)
+      (users, callContext) <- NewStyle.function.getUsersByUserIds(userCustomerLinks.map(_.userId), callContext)
+      (attributes, callContext) <- NewStyle.function.getUserAttributesByUsers(userCustomerLinks.map(_.userId), callContext)
+    } yield{
+      (customer, users, attributes, callContext)
+    }
+    
+    lazy val getMyCorrelatedEntities : OBPEndpoint = {
+      case "my" :: "correlated-entities" :: Nil JsonGet _ => {
+        cc =>
+          for {
+            (Full(u), callContext) <- SS.user  
+            (userCustomerLinks, callContext) <- UserCustomerLinkNewStyle.getUserCustomerLinksByUserId(
+              u.userId,
+              callContext
+            )
+            correlatedUserInfoList <- Future.sequence(userCustomerLinks.map(getCorrelatedUsersInfo(_, callContext)))
+          } yield {
+            (CorrelatedEntities(correlatedUserInfoList.map(
+              correlatedUserInfo => 
+                JSONFactory400.createCustomerAdUsersWithAttributesJson(
+                  correlatedUserInfo._1, 
+                  correlatedUserInfo._2, 
+                  correlatedUserInfo._3))), 
+              HttpCode.`200`(callContext))
+          }
+      }
+    }
+
+    staticResourceDocs += ResourceDoc(
+      createCustomer,
+      implementedInApiVersion,
+      nameOf(createCustomer),
+      "POST",
+      "/banks/BANK_ID/customers",
+      "Create Customer",
+      s"""
+         |The Customer resource stores the customer number (which is set by the backend), legal name, email, phone number, their date of birth, relationship status, education attained, a url for a profile image, KYC status etc.
+         |Dates need to be in the format 2013-01-21T23:08:00Z
+         |
+         |Note: If you need to set a specific customer number, use the Update Customer Number endpoint after this call.
+         |
+         |${authenticationRequiredMessage(true)}
+         |""",
+      postCustomerJsonV310,
+      customerJsonV310,
+      List(
+        $UserNotLoggedIn,
+        $BankNotFound,
+        InvalidJsonFormat,
+        CustomerNumberAlreadyExists,
+        UserNotFoundById,
+        CustomerAlreadyExistsForUser,
+        CreateConsumerError,
+        UnknownError
+      ),
+      List(apiTagCustomer, apiTagPerson, apiTagNewStyle),
+      Some(List(canCreateCustomer,canCreateCustomerAtAnyBank))
+    )
+    lazy val createCustomer : OBPEndpoint = {
+      case "banks" :: BankId(bankId) :: "customers" :: Nil JsonPost json -> _ => {
+        cc =>
+          for {
+            postedData <- NewStyle.function.tryons(s"$InvalidJsonFormat The Json body should be the $PostCustomerJsonV310 ", 400, cc.callContext) {
+              json.extract[PostCustomerJsonV310]
+            }
+            _ <- Helper.booleanToFuture(failMsg =  InvalidJsonContent + s" The field dependants(${postedData.dependants}) not equal the length(${postedData.dob_of_dependants.length }) of dob_of_dependants array", 400, cc.callContext) {
+              postedData.dependants == postedData.dob_of_dependants.length
+            }
+            (customer, callContext) <- NewStyle.function.createCustomer(
+              bankId,
+              postedData.legal_name,
+              postedData.mobile_phone_number,
+              postedData.email,
+              CustomerFaceImage(postedData.face_image.date, postedData.face_image.url),
+              postedData.date_of_birth,
+              postedData.relationship_status,
+              postedData.dependants,
+              postedData.dob_of_dependants,
+              postedData.highest_education_attained,
+              postedData.employment_status,
+              postedData.kyc_status,
+              postedData.last_ok_date,
+              Option(CreditRating(postedData.credit_rating.rating, postedData.credit_rating.source)),
+              Option(CreditLimit(postedData.credit_limit.currency, postedData.credit_limit.amount)),
+              postedData.title,
+              postedData.branch_id,
+              postedData.name_suffix,
+              cc.callContext,
+            )
+          } yield {
+            (JSONFactory310.createCustomerJson(customer), HttpCode.`201`(callContext))
+          }
+      }
+    }
+
+
+    staticResourceDocs += ResourceDoc(
+      getAccountsMinimalByCustomerId,
+      implementedInApiVersion,
+      nameOf(getAccountsMinimalByCustomerId),
+      "GET",
+      "/customers/CUSTOMER_ID/accounts-minimal",
+      "Get Accounts Minimal for a Customer",
+      s"""Get Accounts Minimal by CUSTOMER_ID
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+         |""",
+      EmptyBody,
+      accountsMinimalJson400,
+      List(
+        $UserNotLoggedIn,
+        CustomerNotFound,
+        UnknownError
+      ),
+      List(apiTagAccount, apiTagNewStyle),
+      Some(List(canGetAccountsMinimalForCustomerAtAnyBank)))
+
+    lazy val getAccountsMinimalByCustomerId : OBPEndpoint = {
+      case "customers" :: customerId :: "accounts-minimal" :: Nil JsonGet _ => {
+        cc =>
+          for {
+            (_, callContext) <- getCustomerByCustomerId(customerId, cc.callContext)
+            (userCustomerLinks, callContext) <- getUserCustomerLinks(customerId, callContext)
+            (users, callContext) <- getUsersByUserIds(userCustomerLinks.map(_.userId), callContext)
+          } yield {
+            val accountAccess = for (user <- users) yield Views.views.vend.privateViewsUserCanAccess(user)._2
+            (JSONFactory400.createAccountsMinimalJson400(accountAccess.flatten), HttpCode.`200`(callContext))
           }
       }
     }
@@ -8196,7 +8686,7 @@ trait APIMethods400 {
          |${authenticationRequiredMessage(true)}
          |""".stripMargin,
       EmptyBody,
-      userAttributesResponseJson,
+      userWithAttributesResponseJson,
       List(
         $UserNotLoggedIn,
         UnknownError
@@ -11680,6 +12170,88 @@ trait APIMethods400 {
       }
     }
 
+    staticResourceDocs += ResourceDoc(
+      createCustomerMessage,
+      implementedInApiVersion,
+      nameOf(createCustomerMessage),
+      "POST",
+      "/banks/BANK_ID/customers/CUSTOMER_ID/messages",
+      "Create Customer Message",
+      s"""
+         |Create a message for the customer specified by CUSTOMER_ID 
+         |${authenticationRequiredMessage(true)}
+         | 
+         |""".stripMargin,
+      createMessageJsonV400,
+      successMessage,
+      List(
+        UserNotLoggedIn,
+        $BankNotFound
+      ),
+      List(apiTagMessage, apiTagCustomer, apiTagPerson),
+      Some(List(canCreateCustomerMessage))
+    )
+
+    lazy val createCustomerMessage : OBPEndpoint = {
+      case "banks" :: BankId(bankId) :: "customers" :: customerId :: "messages" :: Nil JsonPost json -> _ => {
+        cc =>{
+          for {
+            (Full(u), callContext) <- SS.user 
+            failMsg = s"$InvalidJsonFormat The Json body should be the $CreateMessageJsonV400 "
+            postedData <- NewStyle.function.tryons(failMsg, 400, callContext) {
+              json.extract[CreateMessageJsonV400]
+            }
+            (customer, callContext) <- NewStyle.function.getCustomerByCustomerId(customerId, callContext)
+            (_, callContext)<- NewStyle.function.createCustomerMessage(
+              customer,
+              bankId,
+              postedData.transport,
+              postedData.message,
+              postedData.from_department,
+              postedData.from_person,
+              callContext
+            )
+          } yield {
+            (successMessage, HttpCode.`201`(callContext))
+          }
+        }
+      }
+    }
+
+    staticResourceDocs += ResourceDoc(
+     getCustomerMessages,
+     implementedInApiVersion,
+     nameOf(getCustomerMessages),
+     "GET",
+     "/banks/BANK_ID/customers/CUSTOMER_ID/messages",
+     "Get Customer Messages for a Customer",
+     s"""Get messages for the customer specified by CUSTOMER_ID
+         ${authenticationRequiredMessage(true)}
+        """,
+     emptyObjectJson,
+     customerMessagesJsonV400,
+     List(
+       UserNotLoggedIn,
+       $BankNotFound,
+       UnknownError),
+     List(apiTagMessage, apiTagCustomer),
+     Some(List(canGetCustomerMessages)) 
+    )
+
+    lazy val getCustomerMessages: OBPEndpoint = {
+      case "banks" :: BankId(bankId) :: "customers" :: customerId :: "messages" :: Nil JsonGet _ => {
+        cc =>{
+          for {
+            (Full(u), callContext) <- SS.user 
+            (customer, callContext) <- NewStyle.function.getCustomerByCustomerId(customerId, callContext)   
+            (messages, callContext) <- NewStyle.function.getCustomerMessages(customer, bankId, callContext)   
+          } yield {
+            (JSONFactory400.createCustomerMessagesJson(messages), HttpCode.`200`(callContext))
+          }
+        }
+      }
+    }
+    
   }
 
   private def checkRoleBankIdExsiting(callContext: Option[CallContext], entitlement: CreateEntitlementJSON) = {

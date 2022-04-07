@@ -571,25 +571,34 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     JsonResponse(jsonAst, getHeaders() ::: headers.list, Nil, httpCode)
   }
 
+  // exclude all values that defined in props "excluded.response.field.values"
+  val excludedFieldValues = APIUtil.getPropsValue("excluded.response.field.values").map[JArray](it => json.parse(it).asInstanceOf[JArray])
+
   def successJsonResponseNewStyle(cc: Any, callContext: Option[CallContext], httpCode : Int = 200)(implicit headers: CustomResponseHeaders = CustomResponseHeaders(Nil)) : JsonResponse = {
     val jsonAst: JValue = ApiSession.processJson((Extraction.decompose(cc)), callContext)
+    val jsonValue = excludedFieldValues match {
+      case Full(JArray(arr:List[JValue])) =>
+        JsonUtils.deleteFieldRec(jsonAst)(v => arr.contains(v.value))
+      case _ => jsonAst
+    }
+
     callContext match {
       case Some(c) if c.httpCode.isDefined && c.httpCode.get == 204 =>
         val httpBody = None
         val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
         JsonResponse(JsRaw(""), getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, 204)
       case Some(c) if c.httpCode.isDefined =>
-        val httpBody = Full(JsonAST.compactRender(jsonAst))
+        val httpBody = Full(JsonAST.compactRender(jsonValue))
         val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
-        JsonResponse(jsonAst, getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, c.httpCode.get)
+        JsonResponse(jsonValue, getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, c.httpCode.get)
       case Some(c) if c.verb.toUpperCase() == "DELETE" =>
         val httpBody = None
         val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
         JsonResponse(JsRaw(""), getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, 204)
       case _ =>
-        val httpBody = Full(JsonAST.compactRender(jsonAst))
+        val httpBody = Full(JsonAST.compactRender(jsonValue))
         val jwsHeaders: CustomResponseHeaders = getSignRequestHeadersNewStyle(callContext,httpBody)
-        JsonResponse(jsonAst, getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, httpCode)
+        JsonResponse(jsonValue, getHeaders() ::: headers.list ::: jwsHeaders.list, Nil, httpCode)
     }
   }
 
@@ -2143,7 +2152,9 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     } 
     // Consumer OR User has the Role
     else if(getPropsAsBoolValue("allow_entitlements_or_scopes", false)) {
-      roles.isEmpty || roles.exists(hasEntitlement(bankId, userId, _)) || roles.exists(hasScope(bankId, consumerId, _))
+      roles.isEmpty || 
+        roles.exists(hasEntitlement(bankId, userId, _)) || 
+        roles.exists(role => hasScope(if (role.requiresBankId) bankId else "", consumerId, role))
     }
     // User has the Role
     else {

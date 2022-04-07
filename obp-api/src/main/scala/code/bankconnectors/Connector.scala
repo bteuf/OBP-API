@@ -567,6 +567,37 @@ trait Connector extends MdcLoggable {
   def getCounterpartyByIban(iban: String, callContext: Option[CallContext]) : OBPReturnType[Box[CounterpartyTrait]] = Future {(Failure(setUnimplementedError), callContext)}
 
   def getCounterpartyByIbanAndBankAccountId(iban: String, bankId: BankId, accountId: AccountId, callContext: Option[CallContext]) : OBPReturnType[Box[CounterpartyTrait]] = Future {(Failure(setUnimplementedError), callContext)}
+  
+  def getOrCreateCounterparty(
+    name: String,
+    description: String,
+    currency: String,
+    createdByUserId: String,
+    thisBankId: String,
+    thisAccountId: String,
+    thisViewId: String,
+    other_bank_routing_scheme: String,
+    other_bank_routing_address: String,
+    other_branch_routing_scheme: String,
+    other_branch_routing_address: String,
+    other_account_routing_scheme: String,
+    other_account_routing_address: String,
+    other_account_secondary_routing_scheme: String,
+    other_account_secondary_routing_address: String,
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[CounterpartyTrait]] = Future {(Failure(setUnimplementedError), callContext)}  
+  
+  def getCounterpartyByRoutings(
+    otherBankRoutingScheme: String,
+    otherBankRoutingAddress: String,
+    otherBranchRoutingScheme: String,
+    otherBranchRoutingAddress: String,
+    otherAccountRoutingScheme: String,
+    otherAccountRoutingAddress: String,
+    otherAccountSecondaryRoutingScheme: String,
+    otherAccountSecondaryRoutingAddress: String,
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[CounterpartyTrait]] = Future {(Failure(setUnimplementedError), callContext)}
 
   def getCounterpartiesLegacy(thisBankId: BankId, thisAccountId: AccountId, viewId :ViewId, callContext: Option[CallContext] = None): Box[(List[CounterpartyTrait], Option[CallContext])]= Failure(setUnimplementedError)
 
@@ -585,7 +616,7 @@ trait Connector extends MdcLoggable {
 
   def getTransaction(bankId: BankId, accountId : AccountId, transactionId : TransactionId, callContext: Option[CallContext] = None): OBPReturnType[Box[Transaction]] = Future{(Failure(setUnimplementedError), callContext)}
 
-  def getPhysicalCardsForUser(user : User) : Box[List[PhysicalCard]] = Failure(setUnimplementedError)
+  def getPhysicalCardsForUser(user : User, callContext: Option[CallContext] = None) : OBPReturnType[Box[List[PhysicalCard]]] = Future{(Failure(setUnimplementedError), callContext)}
 
   def getPhysicalCardForBank(bankId: BankId, cardId: String,  callContext:Option[CallContext]) : OBPReturnType[Box[PhysicalCardTrait]] = Future{(Failure(setUnimplementedError), callContext)}
   def deletePhysicalCardForBank(bankId: BankId, cardId: String,  callContext:Option[CallContext]) : OBPReturnType[Box[Boolean]] = Future{(Failure(setUnimplementedError), callContext)}
@@ -1970,6 +2001,8 @@ trait Connector extends MdcLoggable {
 
   def deleteTaxResidence(taxResourceId : String, callContext: Option[CallContext]): OBPReturnType[Box[Boolean]] = Future{(Failure(setUnimplementedError), callContext)}
 
+  def getCustomersAtAllBanks(callContext: Option[CallContext], queryParams: List[OBPQueryParam] = Nil): OBPReturnType[Box[List[Customer]]] = Future{Failure(setUnimplementedError)}
+  
   def getCustomers(bankId : BankId, callContext: Option[CallContext], queryParams: List[OBPQueryParam] = Nil): Future[Box[List[Customer]]] = Future{Failure(setUnimplementedError)}
   
   def getCustomersByCustomerPhoneNumber(bankId : BankId, phoneNumber: String, callContext: Option[CallContext]): OBPReturnType[Box[List[Customer]]] = Future{(Failure(setUnimplementedError), callContext)}
@@ -2125,6 +2158,9 @@ trait Connector extends MdcLoggable {
     }
   
   def getUserAttributes(userId: String, callContext: Option[CallContext]): OBPReturnType[Box[List[UserAttribute]]] = 
+    Future{(Failure(setUnimplementedError), callContext)}   
+  
+  def getUserAttributesByUsers(userIds: List[String], callContext: Option[CallContext]): OBPReturnType[Box[List[UserAttribute]]] = 
     Future{(Failure(setUnimplementedError), callContext)}  
   
   def createOrUpdateUserAttribute(
@@ -2409,6 +2445,20 @@ trait Connector extends MdcLoggable {
                     fromDepartment : String,
                     fromPerson : String,
                     callContext: Option[CallContext]) : OBPReturnType[Box[CustomerMessage]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def createCustomerMessage(customer: Customer,
+                    bankId : BankId,
+                    transport : String,
+                    message : String,
+                    fromDepartment : String,
+                    fromPerson : String,
+                    callContext: Option[CallContext]) : OBPReturnType[Box[CustomerMessage]] = Future{(Failure(setUnimplementedError), callContext)}
+
+  def getCustomerMessages(
+    customer: Customer,
+    bankId: BankId,
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[List[CustomerMessage]]] = Future{(Failure(setUnimplementedError), callContext)}
 
   def makeHistoricalPayment(fromAccount: BankAccount,
                             toAccount: BankAccount,
@@ -2495,4 +2545,12 @@ trait Connector extends MdcLoggable {
 
   def checkAnswer(authContextUpdateId: String, challenge: String, callContext: Option[CallContext]): OBPReturnType[Box[UserAuthContextUpdate]] = Future{(Failure(setUnimplementedError), callContext)}
 
+  def sendCustomerNotification(
+    scaMethod: StrongCustomerAuthentication,
+    recipient: String, 
+    subject: Option[String], //Only for EMAIL, SMS do not need it, so here it is Option
+    message: String, 
+    callContext: Option[CallContext]
+  ): OBPReturnType[Box[String]] = Future{(Failure(setUnimplementedError), callContext)}
+  
 }

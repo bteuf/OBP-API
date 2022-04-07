@@ -16,7 +16,7 @@ import code.api.v3_0_0.JSONFactory300.createBranchJsonV300
 import code.api.v3_0_0.custom.JSONFactoryCustom300
 import code.api.v3_0_0.{LobbyJsonV330, _}
 import code.api.v3_1_0.{AccountBalanceV310, AccountsBalancesV310Json, BadLoginStatusJson, ContactDetailsJson, CustomerWithAttributesJsonV310, InviteeJson, ObpApiLoopbackJson, PhysicalCardWithAttributesJsonV310, PutUpdateCustomerEmailJsonV310, _}
-import code.api.v4_0_0.{BankAttributeBankResponseJsonV400, FastFirehoseAccountsJsonV400, PostHistoricalTransactionAtBankJson, _}
+import code.api.v4_0_0.{AccountMinimalJson400, BankAttributeBankResponseJsonV400, CustomerMinimalJsonV400, FastFirehoseAccountsJsonV400, PostHistoricalTransactionAtBankJson, _}
 import code.api.v3_1_0.{AccountBalanceV310, AccountsBalancesV310Json, BadLoginStatusJson, ContactDetailsJson, InviteeJson, ObpApiLoopbackJson, PhysicalCardWithAttributesJsonV310, PutUpdateCustomerEmailJsonV310, _}
 import code.branches.Branches.{Branch, DriveUpString, LobbyString}
 import code.consent.ConsentStatus
@@ -435,7 +435,7 @@ object SwaggerDefinitionsJSON {
     other_bank_routing_scheme= counterpartyOtherBankRoutingSchemeExample.value,
     other_bank_routing_address= counterpartyOtherBankRoutingAddressExample.value,
     is_beneficiary= true,
-    future_date = Some("20881230")
+    future_date = Some(futureDateExample.value)
   )
 
   val adapterImplementationJson = AdapterImplementationJson("CORE",3)
@@ -819,6 +819,16 @@ object SwaggerDefinitionsJSON {
     accounts = List(accountJSON)
   )
 
+  val accountMinimalJson400 = AccountMinimalJson400(
+    bank_id = bankIdExample.value,
+    account_id = accountIdExample.value,
+    view_id = viewIdExample.value
+  )
+
+  val accountsMinimalJson400 = AccountsMinimalJson400(
+    accounts = List(accountMinimalJson400)
+  )
+
   val bankRoutingJsonV121 = BankRoutingJsonV121(
     scheme = "Bank_ID",
     address = "gh.29.uk"
@@ -1158,7 +1168,7 @@ object SwaggerDefinitionsJSON {
     end_date = DateWithDayExampleObject,
     challenge = transactionRequestChallenge,
     charge = transactionRequestCharge,
-    charge_policy = "String",
+    charge_policy = chargePolicyExample.value,
     counterparty_id = counterpartyIdSwagger,
     name = counterpartyNameExample.value,
     this_bank_id = bankIdSwagger,
@@ -2056,23 +2066,23 @@ object SwaggerDefinitionsJSON {
     counterpartyIdJson,
     amountOfMoneyJsonV121,
     "A description for the transaction to the counterparty",
-    "SHARED",
-    Some("20881230")
+    chargePolicyExample.value,
+    Some(futureDateExample.value)
   )
 
   val transactionRequestBodySEPAJSON = TransactionRequestBodySEPAJSON(
     amountOfMoneyJsonV121,
     ibanJson,
     "This is a SEPA Transaction Request",
-    "SHARED",
-    Some("20881230")
+    chargePolicyExample.value,
+    Some(futureDateExample.value)
   )
   val transactionRequestBodySEPAJsonV400 = TransactionRequestBodySEPAJsonV400(
     amountOfMoneyJsonV121,
     ibanJson,
     description = "This is a SEPA Transaction Request",
-    charge_policy = "SHARED",
-    future_date = Some("20881230"),
+    charge_policy = chargePolicyExample.value,
+    future_date = Some(futureDateExample.value),
     reasons = Some(List(
       TransactionRequestReasonJsonV400(
         code = "410",
@@ -2173,6 +2183,12 @@ object SwaggerDefinitionsJSON {
   )
 
   val customersJsonV300 = code.api.v3_0_0.CustomerJSONsV300(List(customerJsonV300))
+  
+  val customerMinimalJsonV400 = CustomerMinimalJsonV400(
+    bank_id = bankIdExample.value,
+    customer_id = customerIdExample.value
+  )
+  val customersMinimalJsonV300 = code.api.v4_0_0.CustomersMinimalJsonV400(List(customerMinimalJsonV400))
   
   val postCustomerJsonV310 =
     PostCustomerJsonV310(
@@ -3880,7 +3896,7 @@ object SwaggerDefinitionsJSON {
     posted = DateWithSecondsExampleString,
     completed= DateWithSecondsExampleString,
     `type`= SANDBOX_TAN.toString,
-    charge_policy= "SHARED"
+    charge_policy= chargePolicyExample.value
   )  
   val postHistoricalTransactionAtBankJson = PostHistoricalTransactionAtBankJson(
     from_account_id = "",
@@ -3890,7 +3906,7 @@ object SwaggerDefinitionsJSON {
     posted = DateWithSecondsExampleString,
     completed= DateWithSecondsExampleString,
     `type`= SANDBOX_TAN.toString,
-    charge_policy= "SHARED"
+    charge_policy = chargePolicyExample.value
   )
 
   val postHistoricalTransactionResponseJson = PostHistoricalTransactionResponseJson(
@@ -3902,7 +3918,7 @@ object SwaggerDefinitionsJSON {
     posted = DateWithMsExampleObject,
     completed= DateWithMsExampleObject,
     transaction_request_type= SANDBOX_TAN.toString,
-    charge_policy= "SHARED"
+    charge_policy = chargePolicyExample.value
   )
   
   val viewBasicCommons = ViewBasic(
@@ -4144,6 +4160,22 @@ object SwaggerDefinitionsJSON {
   val userAttributesResponseJson = UserAttributesResponseJson (
     user_attributes = List(userAttributeResponseJson)
   )
+
+  val userWithAttributesResponseJson = UserWithAttributesResponseJson(user_id = ExampleValue.userIdExample.value,
+    email = ExampleValue.emailExample.value,
+    provider_id = providerIdValueExample.value,
+    provider = providerValueExample.value,
+    username = usernameExample.value,
+    user_attributes = List(userAttributeResponseJson))
+  
+  val customerAndUsersWithAttributesResponseJson = CustomerAndUsersWithAttributesResponseJson(
+    customer = customerJsonV310, users = List(userWithAttributesResponseJson)
+  )
+    
+  val correlatedUsersResponseJson = CorrelatedEntities(
+    correlated_entities = List(customerAndUsersWithAttributesResponseJson)
+  )
+  
   val userAttributeJsonV400 = UserAttributeJsonV400(
     name = userAttributeNameExample.value,
     `type` = userAttributeTypeExample.value,
@@ -4285,6 +4317,27 @@ object SwaggerDefinitionsJSON {
     end_date = DateWithDayExampleObject,
     challenges = List(challengeJsonV400),
     charge = transactionRequestChargeJsonV200
+  )
+
+  val postSimpleCounterpartyJson400 = PostSimpleCounterpartyJson400(
+    name = counterpartyNameExample.value,
+    description = transactionDescriptionExample.value,
+    other_account_routing_scheme = counterpartyOtherAccountRoutingSchemeExample.value,
+    other_account_routing_address = counterpartyOtherAccountRoutingAddressExample.value,
+    other_account_secondary_routing_scheme = counterpartyOtherAccountSecondaryRoutingSchemeExample.value,
+    other_account_secondary_routing_address = counterpartyOtherAccountSecondaryRoutingAddressExample.value,
+    other_bank_routing_scheme = counterpartyOtherBankRoutingSchemeExample.value,
+    other_bank_routing_address = counterpartyOtherBankRoutingAddressExample.value,
+    other_branch_routing_scheme = counterpartyOtherBranchRoutingSchemeExample.value,
+    other_branch_routing_address = counterpartyOtherBranchRoutingAddressExample.value
+  )
+  
+  val transactionRequestBodySimpleJsonV400 = TransactionRequestBodySimpleJsonV400(
+    to= postSimpleCounterpartyJson400,
+    amountOfMoneyJsonV121,
+    descriptionExample.value,
+    chargePolicyExample.value,
+    Some(futureDateExample.value)
   )
   
   val postApiCollectionJson400 = PostApiCollectionJson400(apiCollectionNameExample.value, true, Some(descriptionExample.value))
@@ -4515,6 +4568,26 @@ object SwaggerDefinitionsJSON {
     terms_and_conditions_url = termsAndConditionsUrlExample.value,
     description = descriptionExample.value,
     meta = metaJson,
+  )
+
+  val createMessageJsonV400 = CreateMessageJsonV400(
+    message = messageExample.value,
+    transport = transportExample.value,
+    from_department = fromDepartmentExample.value,
+    from_person = fromPersonExample.value,
+  )
+
+  val customerMessageJsonV400 = CustomerMessageJsonV400(
+    id = customerMessageId.value,
+    date = DateWithDayExampleObject,
+    transport = transportExample.value,
+    message = messageExample.value,
+    from_department = fromDepartmentExample.value,
+    from_person = fromPersonExample.value,
+  )
+
+  val customerMessagesJsonV400 = CustomerMessagesJsonV400(
+    messages = List(customerMessageJsonV400)
   )
 
   val requestRootJsonClass = dynamic.practise.PractiseEndpoint.RequestRootJsonClass(name = nameExample.value, age=ageExample.value.toLong, Nil)
