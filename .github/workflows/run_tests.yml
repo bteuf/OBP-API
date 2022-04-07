@@ -18,4 +18,4 @@ jobs:
         run: |
           cp obp-api/src/main/resources/props/test.default.props.template obp-api/src/main/resources/props/test.default.props
           sed -i 's/#logger.loglevel=INFO/logger.loglevel=INFO/g' obp-api/src/main/resources/props/test.default.props.template
-          mvn -Xmx3G -Xss4m -XX:MaxPermSize=3G test
+          MAVEN_OPTS="-Xmx3G -Xss4m -XX:MaxPermSize=3G" mvn test
