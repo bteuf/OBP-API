@@ -16,6 +16,7 @@ jobs:
           cache: maven
       - name: Build with Maven
         run: |
+          cp obp-api/src/main/resources/props/test.default.props.template obp-api/src/main/resources/props/test.default.props
           echo connector=mapped > obp-api/src/main/resources/props/test.default.props
           echo hostname=http://localhost:8016 >> obp-api/src/main/resources/props/test.default.props
           echo tests.port=8016 >> obp-api/src/main/resources/props/test.default.props
@@ -52,4 +53,4 @@ jobs:
           echo ResetPasswordUrlEnabled=true >> obp-api/src/main/resources/props/test.default.props
 
           echo consents.allowed=true >> obp-api/src/main/resources/props/test.default.props
-          MAVEN_OPTS="-Xmx3G -Xss4m" mvn test
+          MAVEN_OPTS="-Xmx3G -Xss2m" mvn test
