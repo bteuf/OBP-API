@@ -58,6 +58,7 @@ import code.transactionrequests.TransactionRequests.TransactionChallengeTypes
 import code.userlocks.UserLocks
 import code.users.{UserAgreement, UserAttribute, UserInvitation}
 import code.views.system.AccountAccess
+import code.webhook.{AccountWebhook, BankAccountNotificationWebhookTrait, SystemAccountNotificationWebhookTrait}
 import com.openbankproject.commons.model.{DirectDebitTrait, ProductFeeTrait, _}
 import net.liftweb.common.{Box, Full}
 import net.liftweb.json.JValue
@@ -579,7 +580,8 @@ case class DatabaseInfoJson(product_name: String, product_version: String)
 case class ChallengeJson(
   challenge_id: String,
   transaction_request_id: String,
-  expected_user_id: String
+  expected_user_id: String,
+  allowed_attempts: Int
 )
 
 case class SettlementAccountRequestJson(
@@ -1023,6 +1025,31 @@ case class CustomerMessagesJsonV400(
   messages: List[CustomerMessageJsonV400]
 )
 
+case class AccountNotificationWebhookPostJson(
+  url: String,
+  http_method: String,
+  http_protocol: String,
+)
+
+case class SystemAccountNotificationWebhookJson(
+  webhook_id: String,
+  trigger_name: String,
+  url: String,
+  http_method: String,
+  http_protocol: String,
+  created_by_user_id: String
+)
+
+case class BankAccountNotificationWebhookJson(
+  webhook_id: String,
+  bank_id: String,
+  trigger_name: String,
+  url: String,
+  http_method: String,
+  http_protocol: String,
+  created_by_user_id: String,
+)
+
 case class CustomerMessageJsonV400(
   id: String, 
   date: Date, 
@@ -1206,7 +1233,7 @@ object JSONFactory400 {
             case _ => ""
           }
           challenges.map(
-            e => ChallengeJsonV400(id = stringOrNull(e.challenge_id), user_id = e.expected_user_id, allowed_attempts = tr.challenge.allowed_attempts, challenge_type = stringOrNull(tr.challenge.challenge_type), link = link)
+            e => ChallengeJsonV400(id = stringOrNull(e.challenge_id), user_id = e.expected_user_id, allowed_attempts = e.allowed_attempts, challenge_type = stringOrNull(tr.challenge.challenge_type), link = link)
           )
         }
         // catch { case _ : Throwable => ChallengeJSON (id = "", allowed_attempts = 0, challenge_type = "")}
@@ -1931,7 +1958,29 @@ object JSONFactory400 {
   def createCustomersMinimalJson(customers : List[Customer]) : CustomersMinimalJsonV400 = {
     CustomersMinimalJsonV400(customers.map(i => CustomerMinimalJsonV400(i.bankId, i.customerId)))
   }
+
+  def createSystemLevelAccountWebhookJsonV400(wh: SystemAccountNotificationWebhookTrait) = {
+    SystemAccountNotificationWebhookJson(
+      webhook_id = wh.webhookId,
+      trigger_name = wh.triggerName,
+      url = wh.url,
+      http_method = wh.httpMethod,
+      http_protocol = wh.httpProtocol,
+      created_by_user_id = wh.createdByUserId
+    )
+  }
   
+  def createBankLevelAccountWebhookJsonV400(wh: BankAccountNotificationWebhookTrait) = {
+    BankAccountNotificationWebhookJson(
+      webhook_id = wh.webhookId,
+      bank_id = wh.bankId,
+      trigger_name = wh.triggerName,
+      url = wh.url,
+      http_method = wh.httpMethod,
+      http_protocol = wh.httpProtocol,
+      created_by_user_id = wh.createdByUserId
+    )
+  }
   
 }
 

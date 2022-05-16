@@ -61,6 +61,7 @@ object Migration extends MdcLoggable {
     
     def executeScripts(startedBeforeSchemifier: Boolean): Boolean = executeScript {
       dummyScript()
+      addAccountAccessConsumerId()
       populateTableViewDefinition()
       populateTableAccountAccess()
       generateAndPopulateMissingCustomerUUIDs()
@@ -90,6 +91,7 @@ object Migration extends MdcLoggable {
       alterUserAuthContextColumnKeyAndValueLength(startedBeforeSchemifier)
       dropIndexAtColumnUsernameAtTableAuthUser(startedBeforeSchemifier)
       dropIndexAtUserAuthContext()
+      alterWebhookColumnUrlLength()
     }
     
     private def dummyScript(): Boolean = {
@@ -351,6 +353,20 @@ object Migration extends MdcLoggable {
       val name = nameOf(dropIndexAtUserAuthContext)
       runOnce(name) {
         MigrationOfMappedUserAuthContext.dropUniqueIndex(name)
+      }
+    }
+    
+    private def addAccountAccessConsumerId(): Boolean = {
+      val name = nameOf(addAccountAccessConsumerId)
+      runOnce(name) {
+        MigrationOfAccountAccessAddedConsumerId.addAccountAccessConsumerId(name)
+      }
+    }
+
+    private def alterWebhookColumnUrlLength(): Boolean = {
+      val name = nameOf(alterWebhookColumnUrlLength)
+      runOnce(name) {
+        MigrationOfWebhookUrlFieldLength.alterColumnUrlLength(name)
       }
     }
     

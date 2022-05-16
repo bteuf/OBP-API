@@ -558,6 +558,8 @@ trait Connector extends MdcLoggable {
   def getCounterpartyByCounterpartyIdLegacy(counterpartyId: CounterpartyId, callContext: Option[CallContext]): Box[(CounterpartyTrait, Option[CallContext])]= Failure(setUnimplementedError)
 
   def getCounterpartyByCounterpartyId(counterpartyId: CounterpartyId, callContext: Option[CallContext]): OBPReturnType[Box[CounterpartyTrait]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def deleteCounterpartyByCounterpartyId(counterpartyId: CounterpartyId, callContext: Option[CallContext]): OBPReturnType[Box[Boolean]] = Future{(Failure(setUnimplementedError), callContext)}
 
 
   /**
@@ -770,6 +772,8 @@ trait Connector extends MdcLoggable {
 
   def getDoubleEntryBookTransaction(bankId: BankId, accountId: AccountId, transactionId: TransactionId,
                                      callContext: Option[CallContext]): OBPReturnType[Box[DoubleEntryTransaction]]= Future{(Failure(setUnimplementedError), callContext)}
+  def getBalancingTransaction(transactionId: TransactionId,
+                              callContext: Option[CallContext]): OBPReturnType[Box[DoubleEntryTransaction]]= Future{(Failure(setUnimplementedError), callContext)}
 
   protected def makePaymentImpl(fromAccount: BankAccount, toAccount: BankAccount, transactionRequestCommonBody: TransactionRequestCommonBodyJSON, amt: BigDecimal, description: String, transactionRequestType: TransactionRequestType, chargePolicy: String): Box[TransactionId]= Failure(setUnimplementedError)
 

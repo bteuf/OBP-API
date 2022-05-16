@@ -1424,8 +1424,8 @@ trait APIMethods310 {
             postedData <- NewStyle.function.tryons(failMsg, 400, callContext) {
               json.extract[PostUserAuthContextJson]
             }
-            (_, callContext) <- NewStyle.function.findByUserId(userId, callContext)
-            (userAuthContext, callContext) <- NewStyle.function.createUserAuthContext(userId, postedData.key, postedData.value, callContext)
+            (user, callContext) <- NewStyle.function.findByUserId(userId, callContext)
+            (userAuthContext, callContext) <- NewStyle.function.createUserAuthContext(user, postedData.key, postedData.value, callContext)
           } yield {
             (JSONFactory310.createUserAuthContextJson(userAuthContext), HttpCode.`201`(callContext))
           }
@@ -1538,8 +1538,8 @@ trait APIMethods310 {
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, canDeleteUserAuthContext, callContext)
-            (_, callContext) <- NewStyle.function.findByUserId(userId, callContext)
-            (userAuthContext, callContext) <- NewStyle.function.deleteUserAuthContextById(userAuthContextId, callContext)
+            (user, callContext) <- NewStyle.function.findByUserId(userId, callContext)
+            (userAuthContext, callContext) <- NewStyle.function.deleteUserAuthContextById(user, userAuthContextId, callContext)
           } yield {
             (Full(userAuthContext), HttpCode.`200`(callContext))
           }
@@ -3783,11 +3783,12 @@ trait APIMethods310 {
               json.extract[PostUserAuthContextUpdateJsonV310]
             }
             (userAuthContextUpdate, callContext) <- NewStyle.function.checkAnswer(authContextUpdateId, postUserAuthContextUpdateJson.answer, callContext)
+            (user, callContext) <- NewStyle.function.getUserByUserId(userAuthContextUpdate.userId, callContext)
             (_, callContext) <-
               userAuthContextUpdate.status match {
                 case status if status == UserAuthContextUpdateStatus.ACCEPTED.toString => 
                   NewStyle.function.createUserAuthContext(
-                    userAuthContextUpdate.userId, 
+                    user, 
                     userAuthContextUpdate.key, 
                     userAuthContextUpdate.value, 
                     callContext).map(x => (Some(x._1), x._2))
@@ -3800,7 +3801,7 @@ trait APIMethods310 {
                   NewStyle.function.getOCreateUserCustomerLink(
                     bankId,
                     userAuthContextUpdate.value, // Customer number
-                    userAuthContextUpdate.userId, 
+                    user.userId, 
                     callContext
                   )
                 case _ =>
@@ -4631,7 +4632,7 @@ trait APIMethods310 {
         UnknownError
       ),
       List(apiTagCustomer, apiTagNewStyle),
-      Some(canUpdateCustomerCreditRatingAndSource :: Nil)
+      Some(canUpdateCustomerCreditRatingAndSource :: canUpdateCustomerCreditRatingAndSourceAtAnyBank :: Nil)
     )
 
     lazy val updateCustomerCreditRatingAndSource : OBPEndpoint = {
@@ -4640,7 +4641,7 @@ trait APIMethods310 {
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
-            _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, canUpdateCustomerCreditRatingAndSource, callContext)
+            _ <- NewStyle.function.hasAtLeastOneEntitlement(bankId.value, u.userId, List(canUpdateCustomerCreditRatingAndSource,canUpdateCustomerCreditRatingAndSourceAtAnyBank), callContext)
             failMsg = s"$InvalidJsonFormat The Json body should be the $PutUpdateCustomerCreditRatingAndSourceJsonV310 "
             putData <- NewStyle.function.tryons(failMsg, 400, callContext) {
               json.extract[PutUpdateCustomerCreditRatingAndSourceJsonV310]

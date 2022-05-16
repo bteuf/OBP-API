@@ -308,6 +308,7 @@ trait UserAuthContext {
   def key : String
   def value : String
   def timeStamp : Date
+  def consumerId : String
 }
 
 trait ConsentAuthContext {
@@ -560,6 +561,8 @@ trait ChallengeTrait {
   def scaMethod: Option[SCA]
   def scaStatus: Option[SCAStatus]
   def authenticationMethodId: Option[String]
+  
+  def attemptCounter: Int
 }
 
 
