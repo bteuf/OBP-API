@@ -68,17 +68,17 @@ jobs:
       - name: Write signing key to disk (only needed for `cosign sign --key`)
               run: echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
       - name: Sign container image with annotations from our environment
-              run: |
-                cosign sign --key cosign.key \
-                  -a "repo=${{ github.repository }}" \
-                  -a "workflow=${{ github.workflow }}" \
-                  -a "ref=${{ github.sha }}" \
-                  docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:develop
-                cosign sign --key cosign.key \
-                                  -a "repo=${{ github.repository }}" \
-                                  -a "workflow=${{ github.workflow }}" \
-                                  -a "ref=${{ github.sha }}" \
-                                  docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:latest
+        run: |
+          cosign sign --key cosign.key \
+            -a "repo=${{ github.repository }}" \
+            -a "workflow=${{ github.workflow }}" \
+            -a "ref=${{ github.sha }}" \
+            docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:develop
+          cosign sign --key cosign.key \
+                            -a "repo=${{ github.repository }}" \
+                            -a "workflow=${{ github.workflow }}" \
+                            -a "ref=${{ github.sha }}" \
+                            docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:latest
 
 
 
