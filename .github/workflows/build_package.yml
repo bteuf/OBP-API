@@ -18,9 +18,8 @@ jobs:
         with:
           java-version: '11'
           distribution: 'adopt'
-
+      - uses: sigstore/cosign-installer@main
       - name: Sign container image with annotations from our environment
-        uses: sigstore/cosign-installer@main
         run: |
           echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
           cosign sign --key cosign.key \
