@@ -25,6 +25,7 @@ jobs:
 
       - name: Sign container image
         run: |
+          cat cosign.key
           cosign sign --key cosign.key \
             docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:develop
         env:
