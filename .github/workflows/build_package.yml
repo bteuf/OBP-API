@@ -19,19 +19,17 @@ jobs:
           java-version: '11'
           distribution: 'adopt'
       - uses: sigstore/cosign-installer@main
-      - name: Sign container image with annotations from our environment
+
+      - name: Write signing key to disk (only needed for `cosign sign --key`)
+        run: echo "${{ secrets.SIGNING_SECRET }}" > cosign.key
+
+      - name: Sign container image
         run: |
-          echo '${{ secrets.COSIGN_PRIVATE_KEY }}' > cosign.key
           cosign sign --key cosign.key \
-            -a "repo=${{ github.repository }}" \
-            -a "workflow=${{ github.workflow }}" \
-            -a "ref=${{ github.sha }}" \
             docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:develop
-          cosign sign --key cosign.key \
-                            -a "repo=${{ github.repository }}" \
-                            -a "workflow=${{ github.workflow }}" \
-                            -a "ref=${{ github.sha }}" \
-                            docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:latest
+        env:
+          COSIGN_PASSWORD: ""
+
 
 
 
