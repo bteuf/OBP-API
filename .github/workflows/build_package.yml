@@ -77,19 +77,20 @@ jobs:
         with:
           sarif_file: 'trivy-results.sarif'
       - uses: sigstore/cosign-installer@main
-      - name: Sign container image with annotations from our environment
+
+      - name: Write signing key to disk (only needed for `cosign sign --key`)
+        run: echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
+
+      - name: Sign container image
         run: |
-          echo "${{ secrets.COSIGN_PRIVATE_KEY }}" > cosign.key
           cosign sign --key cosign.key \
-            -a "repo=${{ github.repository }}" \
-            -a "workflow=${{ github.workflow }}" \
-            -a "ref=${{ github.sha }}" \
             docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:develop
           cosign sign --key cosign.key \
-                            -a "repo=${{ github.repository }}" \
-                            -a "workflow=${{ github.workflow }}" \
-                            -a "ref=${{ github.sha }}" \
-                            docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:latest
+                      docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:latest
+          cosign sign --key cosign.key \
+                      docker.io/${{ env.DOCKER_HUB_ORGANIZATION }}/${{ env.DOCKER_HUB_REPOSITORY }}:$GITHUB_SHA
+        env:
+          COSIGN_PASSWORD: "${{secrets.COSIGN_PASSWORD}}"
 
 
 
