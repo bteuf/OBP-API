@@ -37,7 +37,7 @@ import code.api.v1_2_1.{BankRoutingJsonV121, JSONFactory, UserJSONV121, ViewJSON
 import code.api.v1_4_0.JSONFactory1_4_0.{LocationJsonV140, MetaJsonV140, TransactionRequestAccountJsonV140, transformToLocationFromV140, transformToMetaFromV140}
 import code.api.v2_0_0.JSONFactory200.UserJsonV200
 import code.api.v2_0_0.{CreateEntitlementJSON, EntitlementJSONs, JSONFactory200, TransactionRequestChargeJsonV200}
-import code.api.v2_1_0.{IbanJson, JSONFactory210, PostCounterpartyBespokeJson, ResourceUserJSON, TransactionRequestBodyCounterpartyJSON}
+import code.api.v2_1_0.{CounterpartyIdJson, IbanJson, JSONFactory210, PostCounterpartyBespokeJson, ResourceUserJSON, TransactionRequestBodyCounterpartyJSON}
 import code.api.v2_2_0.CounterpartyMetadataJson
 import code.api.v3_0_0.JSONFactory300._
 import code.api.v3_0_0._
@@ -54,7 +54,6 @@ import code.model.dataAccess.ResourceUser
 import code.model.{Consumer, ModeratedBankAccount, ModeratedBankAccountCore}
 import code.ratelimiting.RateLimiting
 import code.standingorders.StandingOrderTrait
-
 import code.userlocks.UserLocks
 import code.users.{UserAgreement, UserAttribute, UserInvitation}
 import code.views.system.AccountAccess
@@ -107,6 +106,14 @@ case class BankJson400(
                         bank_routings: List[BankRoutingJsonV121],
                         attributes: Option[List[BankAttributeBankResponseJsonV400]]
                       )
+case class PostBankJson400(
+  id: String,
+  short_name: String,
+  full_name: String,
+  logo: String,
+  website: String,
+  bank_routings: List[BankRoutingJsonV121]
+)
 
 case class BanksJson400(banks: List[BankJson400])
 
@@ -237,11 +244,11 @@ case class FastFirehoseAccountJsonV400(
   bank_id: String,
   label: String,
   number: String,
-  owners: String,
+  owners: List[FastFirehoseOwners],
   product_code: String,
   balance: AmountOfMoneyJsonV121,
-  account_routings: String ,
-  account_attributes: String
+  account_routings: List[FastFirehoseRoutings] ,
+  account_attributes: List[FastFirehoseAttributes]
 )
 
 case class FastFirehoseAccountsJsonV400(
@@ -409,6 +416,23 @@ case class TransactionRequestBodySimpleJsonV400(
   description: String,
   charge_policy: String,
   future_date: Option[String] = None
+) extends TransactionRequestCommonBodyJSON
+
+case class CardJsonV400(
+  card_type: String,
+  brand: String,
+  cvv: String,
+  card_number: String,
+  name_on_card: String,
+  expiry_year: String,
+  expiry_month: String,
+)
+
+case class TransactionRequestBodyCardJsonV400(
+  card: CardJsonV400,
+  to: CounterpartyIdJson,
+  value: AmountOfMoneyJsonV121,
+  description: String,
 ) extends TransactionRequestCommonBodyJSON
 
 case class TransactionRequestReasonJsonV400(

@@ -2,7 +2,6 @@ package code.bankconnectors
 
 import java.util.Date
 import java.util.UUID.randomUUID
-
 import _root_.akka.http.scaladsl.model.HttpMethod
 import code.accountholders.{AccountHolders, MapperAccountHolders}
 import code.api.attributedefinition.AttributeDefinition
@@ -22,6 +21,7 @@ import code.bankconnectors.rest.RestConnector_vMar2019
 import code.bankconnectors.storedprocedure.StoredProcedureConnector_vDec2019
 import code.bankconnectors.vMay2019.KafkaMappedConnector_vMay2019
 import code.bankconnectors.vSept2018.KafkaMappedConnector_vSept2018
+import code.customeraccountlinks.CustomerAccountLinkTrait
 import code.endpointTag.EndpointTagT
 import code.fx.fx.TTL
 import code.management.ImporterAPI.ImporterTransaction
@@ -628,6 +628,9 @@ trait Connector extends MdcLoggable {
   def getPhysicalCardsForUser(user : User, callContext: Option[CallContext] = None) : OBPReturnType[Box[List[PhysicalCard]]] = Future{(Failure(setUnimplementedError), callContext)}
 
   def getPhysicalCardForBank(bankId: BankId, cardId: String,  callContext:Option[CallContext]) : OBPReturnType[Box[PhysicalCardTrait]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def getPhysicalCardByCardNumber(bankCardNumber: String,  callContext:Option[CallContext]) : OBPReturnType[Box[PhysicalCardTrait]] = Future{(Failure(setUnimplementedError), callContext)}
+  
   def deletePhysicalCardForBank(bankId: BankId, cardId: String,  callContext:Option[CallContext]) : OBPReturnType[Box[Boolean]] = Future{(Failure(setUnimplementedError), callContext)}
 
   def getPhysicalCardsForBankLegacy(bank: Bank, user : User, queryParams: List[OBPQueryParam]) : Box[List[PhysicalCard]] = Failure(setUnimplementedError)
@@ -654,6 +657,8 @@ trait Connector extends MdcLoggable {
     collected: Option[CardCollectionInfo],
     posted: Option[CardPostedInfo],
     customerId: String,
+    cvv: String,
+    brand: String,
     callContext: Option[CallContext]
   ): Box[PhysicalCard] = Failure(setUnimplementedError)
 
@@ -678,6 +683,8 @@ trait Connector extends MdcLoggable {
     collected: Option[CardCollectionInfo],
     posted: Option[CardPostedInfo],
     customerId: String,
+    cvv: String,
+    brand: String,
     callContext: Option[CallContext]
   ): OBPReturnType[Box[PhysicalCard]] = Future{(Failure{setUnimplementedError}, callContext)}
 
@@ -1415,7 +1422,7 @@ trait Connector extends MdcLoggable {
         }yield{
           (createdTransactionId,callContext)
         }
-        case transactionRequestType => Future((throw new Exception(s"${InvalidTransactionRequestType}: '${transactionRequestType}'. Not supported in this version.")), callContext)
+        case _ => Future((throw new Exception(s"${InvalidTransactionRequestType}: '${transactionRequestType}'. Not completed in this version.")), callContext)
       }
 
       didSaveTransId <- Future{saveTransactionRequestTransaction(transactionRequestId, transactionId).openOrThrowException(attemptedToOpenAnEmptyBox)}
@@ -1938,7 +1945,31 @@ trait Connector extends MdcLoggable {
                       nameSuffix: String,
                       callContext: Option[CallContext],
                     ): OBPReturnType[Box[Customer]] = Future{(Failure(setUnimplementedError), callContext)}
-  
+
+  def createCustomerC2(
+                        bankId: BankId,
+                        legalName: String,
+                        customerNumber: String,
+                        mobileNumber: String,
+                        email: String,
+                        faceImage:
+                        CustomerFaceImageTrait,
+                        dateOfBirth: Date,
+                        relationshipStatus: String,
+                        dependents: Int,
+                        dobOfDependents: List[Date],
+                        highestEducationAttained: String,
+                        employmentStatus: String,
+                        kycStatus: Boolean,
+                        lastOkDate: Date,
+                        creditRating: Option[CreditRatingTrait],
+                        creditLimit: Option[AmountOfMoneyTrait],
+                        title: String,
+                        branchId: String,
+                        nameSuffix: String,
+                        callContext: Option[CallContext],
+                      ): OBPReturnType[Box[Customer]] = Future{(Failure(setUnimplementedError), callContext)}
+
   def updateCustomerScaData(customerId: String, 
                             mobileNumber: Option[String], 
                             email: Option[String],
@@ -2567,5 +2598,19 @@ trait Connector extends MdcLoggable {
     message: String, 
     callContext: Option[CallContext]
   ): OBPReturnType[Box[String]] = Future{(Failure(setUnimplementedError), callContext)}
+
+  def getCustomerAccountLink(customerId: String, accountId: String, callContext: Option[CallContext]): OBPReturnType[Box[CustomerAccountLinkTrait]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def getCustomerAccountLinksByCustomerId(customerId: String, callContext: Option[CallContext]): OBPReturnType[Box[List[CustomerAccountLinkTrait]]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def getCustomerAccountLinksByAccountId(accountId: String, callContext: Option[CallContext]): OBPReturnType[Box[List[CustomerAccountLinkTrait]]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def getCustomerAccountLinkById(customerAccountLinkId: String, callContext: Option[CallContext]): OBPReturnType[Box[CustomerAccountLinkTrait]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def deleteCustomerAccountLinkById(customerAccountLinkId: String, callContext: Option[CallContext]): OBPReturnType[Box[Boolean]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def createCustomerAccountLink(customerId: String, accountId: String, relationshipType: String, callContext: Option[CallContext]): OBPReturnType[Box[CustomerAccountLinkTrait]] = Future{(Failure(setUnimplementedError), callContext)}
+  
+  def updateCustomerAccountLinkById(customerAccountLinkId: String, relationshipType: String, callContext: Option[CallContext]): OBPReturnType[Box[CustomerAccountLinkTrait]] = Future{(Failure(setUnimplementedError), callContext)}
   
 }

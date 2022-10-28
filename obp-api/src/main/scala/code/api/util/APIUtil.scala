@@ -108,6 +108,8 @@ import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.StringUtils
 import java.security.AccessControlException
 
+import code.users.Users
+
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.concurrent.Future
@@ -118,6 +120,8 @@ import scala.xml.{Elem, XML}
 
 object APIUtil extends MdcLoggable with CustomJsonFormats{
 
+  val DateWithYear = "yyyy"
+  val DateWithMonth = "yyyy-MM"
   val DateWithDay = "yyyy-MM-dd"
   val DateWithDay2 = "yyyyMMdd"
   val DateWithDay3 = "dd/MM/yyyy"
@@ -126,11 +130,15 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   val DateWithMs = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
   val DateWithMsRollback = "yyyy-MM-dd'T'HH:mm:ss.SSSZ" //?? what does this `Rollback` mean ??
 
+  val DateWithYearFormat = new SimpleDateFormat(DateWithYear)
+  val DateWithMonthFormat = new SimpleDateFormat(DateWithMonth)
   val DateWithDayFormat = new SimpleDateFormat(DateWithDay)
   val DateWithSecondsFormat = new SimpleDateFormat(DateWithSeconds)
   val DateWithMsFormat = new SimpleDateFormat(DateWithMs)
   val DateWithMsRollbackFormat = new SimpleDateFormat(DateWithMsRollback)
 
+  val DateWithYearExampleString: String = "1100"
+  val DateWithMonthExampleString: String = "1100-01"
   val DateWithDayExampleString: String = "1100-01-01"
   val DateWithSecondsExampleString: String = "1100-01-01T01:01:01Z"
   val DateWithMsExampleString: String = "1100-01-01T01:01:01.000Z"
@@ -151,12 +159,13 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     oneYearAgo.getTime()
   }
   def DefaultToDate = new Date()
-  def DefaultFromDate = oneYearAgo(DefaultToDate)
+  def oneYearAgoDate = oneYearAgo(DefaultToDate)
+  val theEpochTime: Date = new Date(0) // Set epoch time. The Unix epoch is 00:00:00 UTC on 1 January 1970.
 
   def formatDate(date : Date) : String = {
     CustomJsonFormats.losslessFormats.dateFormat.format(date)
   }
-  def DefaultFromDateString = formatDate(DefaultFromDate)
+  def epochTimeString = formatDate(theEpochTime)
   def DefaultToDateString = formatDate(DefaultToDate)
 
   implicit def errorToJson(error: ErrorMessage): JValue = Extraction.decompose(error)
@@ -438,6 +447,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     CustomResponseHeaders(
       getGatewayLoginHeader(cc).list ::: 
         getRateLimitHeadersNewStyle(cc).list ::: 
+        getPaginationHeadersNewStyle(cc).list ::: 
         getRequestHeadersToMirror(cc).list
     )
   }
@@ -447,13 +457,23 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case (Some(x), true) =>
         CustomResponseHeaders(
           List(
-            ("X-Rate-Limit-Reset", x.`X-Rate-Limit-Reset`.toString),
-            ("X-Rate-Limit-Remaining", x.`X-Rate-Limit-Remaining`.toString),
-            ("X-Rate-Limit-Limit", x.`X-Rate-Limit-Limit`.toString)
+            ("X-Rate-Limit-Reset", x.xRateLimitReset.toString),
+            ("X-Rate-Limit-Remaining", x.xRateLimitRemaining.toString),
+            ("X-Rate-Limit-Limit", x.xRateLimitLimit.toString)
           )
         )
       case _ =>
         CustomResponseHeaders((Nil))
+    }
+  }
+  private def getPaginationHeadersNewStyle(cc: Option[CallContextLight]) = {
+    cc match {
+      case Some(x) if x.paginationLimit.isDefined && x.paginationOffset.isDefined =>
+        CustomResponseHeaders(
+          List(("Range", s"items=${x.paginationOffset.getOrElse("")}-${x.paginationLimit.getOrElse("")}"))
+        )
+      case _ =>
+        CustomResponseHeaders(Nil)
     }
   }
   private def getSignRequestHeadersNewStyle(cc: Option[CallContext], httpBody: Box[String]): CustomResponseHeaders = {
@@ -578,8 +598,11 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   def successJsonResponseNewStyle(cc: Any, callContext: Option[CallContext], httpCode : Int = 200)(implicit headers: CustomResponseHeaders = CustomResponseHeaders(Nil)) : JsonResponse = {
     val jsonAst: JValue = ApiSession.processJson((Extraction.decompose(cc)), callContext)
+    val excludeOptionalFieldsParam = getHttpRequestUrlParam(callContext.map(_.url).getOrElse(""),"exclude-optional-fields")
+    val excludedResponseBehaviour = APIUtil.getPropsAsBoolValue("excluded.response.behaviour", false)
+    //excludeOptionalFieldsParamValue has top priority, then the excludedResponseBehaviour props.
     val jsonValue = excludedFieldValues match {
-      case Full(JArray(arr:List[JValue])) =>
+      case Full(JArray(arr:List[JValue])) if (excludeOptionalFieldsParam.equalsIgnoreCase("true") || (excludeOptionalFieldsParam.equalsIgnoreCase("") && excludedResponseBehaviour))=>
         JsonUtils.deleteFieldRec(jsonAst)(v => arr.contains(v.value))
       case _ => jsonAst
     }
@@ -783,6 +806,12 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       null
     else
       text
+  
+  def nullToString(text : String) =
+    if(text == null)
+      null
+    else
+      text
 
   def stringOptionOrNull(text : Option[String]) =
     text match {
@@ -856,9 +885,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case (_, Full(right)) =>
         parseObpStandardDate(right.head)
       case _ =>
-        Full(DefaultFromDate)
+        Full(theEpochTime) // Set epoch time. The Unix epoch is 00:00:00 UTC on 1 January 1970.
     }
-
     date.map(OBPFromDate(_))
   }
 
@@ -877,7 +905,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   }
 
   def getOffset(httpParams: List[HTTPParam]): Box[OBPOffset] = {
-    (getPaginationParam(httpParams, "offset", None, 0, FilterOffersetError), getPaginationParam(httpParams, "obp_offset", Some(0), 0, FilterOffersetError)) match {
+    (getPaginationParam(httpParams, "offset", None, 0, FilterOffersetError), getPaginationParam(httpParams, "obp_offset", Some(Constant.Pagination.offset), 0, FilterOffersetError)) match {
       case (Full(left), _) =>
         Full(OBPOffset(left))
       case (Failure(m, e, c), _) =>
@@ -886,12 +914,12 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         Full(OBPOffset(right))
       case (_, Failure(m, e, c)) =>
         Failure(m, e, c)
-      case _ => Full(OBPOffset(0))
+      case _ => Full(OBPOffset(Constant.Pagination.offset))
     }
   }
 
   def getLimit(httpParams: List[HTTPParam]): Box[OBPLimit] = {
-    (getPaginationParam(httpParams, "limit", None, 1, FilterLimitError), getPaginationParam(httpParams, "obp_limit", Some(50), 1, FilterLimitError)) match {
+    (getPaginationParam(httpParams, "limit", None, 1, FilterLimitError), getPaginationParam(httpParams, "obp_limit", Some(Constant.Pagination.limit), 1, FilterLimitError)) match {
       case (Full(left), _) =>
         Full(OBPLimit(left))
       case (Failure(m, e, c), _) =>
@@ -900,7 +928,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         Full(OBPLimit(right))
       case (_, Failure(m, e, c)) =>
         Failure(m, e, c)
-      case _ => Full(OBPLimit(50))
+      case _ => Full(OBPLimit(Constant.Pagination.limit))
     }
   }
 
@@ -1028,8 +1056,16 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     }
   }
 
-  def createQueriesByHttpParamsFuture(httpParams: List[HTTPParam]) = Future {
-    createQueriesByHttpParams(httpParams: List[HTTPParam])
+  def createQueriesByHttpParamsFuture(httpParams: List[HTTPParam], callContext: Option[CallContext]): OBPReturnType[List[OBPQueryParam]] = {
+    Future(createQueriesByHttpParams(httpParams: List[HTTPParam])) map { i =>
+      (i, callContext) 
+    } map { x => 
+      fullBoxOrException(x._1 ~> APIFailureNewStyle(InvalidFilterParameterFormat, 400, callContext.map(_.toLight)))
+    } map { unboxFull(_) } map { i => 
+      val limit: Option[String] = i.collectFirst { case OBPLimit(value) => value.toString }
+      val offset: Option[String] = i.collectFirst { case OBPOffset(value) => value.toString }
+      (i, callContext.map(_.copy(paginationOffset = offset, paginationLimit = limit))) 
+    }
   }
 
   /**
@@ -1910,7 +1946,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val dateParameter = if(containsDate){
       s"""
          |
-         |* from_date=DATE => example value: $DefaultFromDateString. NOTE! The default value is one year ago ($DefaultFromDateString).
+         |* from_date=DATE => example value: $epochTimeString. NOTE! The default value is one year ago ($epochTimeString).
          |* to_date=DATE => example value: $DefaultToDateString. NOTE! The default value is now ($DefaultToDateString).
          |
          |Date format parameter: $DateWithMs($DateWithMsExampleString) ==> time zone is UTC.
@@ -3360,7 +3396,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   def isOwnerView(viewId: ViewId): Boolean = {
     viewId.value == SYSTEM_OWNER_VIEW_ID ||
       viewId.value == "_" + SYSTEM_OWNER_VIEW_ID || // New views named like this are forbidden from this commit
-      viewId.value == CUSTOM_OWNER_VIEW_ID // New views named like this are forbidden from this commit
+      viewId.value == SYSTEM_OWNER_VIEW_ID // New views named like this are forbidden from this commit
   }
 
   /**
@@ -3657,6 +3693,20 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     }
   }
 
+  /**
+   * This function finds accounts of a Customer
+   * @param customerId The CUSTOMER_ID
+   * @return The list of Accounts
+   */
+  def getAccountsByCustomer(customerId: CustomerId): List[BankIdAccountId] = {
+    for {
+      userCustomerLink <- UserCustomerLink.userCustomerLink.vend.getUserCustomerLinksByCustomerId(customerId.value)
+      user <- Users.users.vend.getUserByUserId(userCustomerLink.userId).toList
+      availablePrivateAccounts <- Views.views.vend.getPrivateBankAccounts(user)
+    } yield {
+      availablePrivateAccounts
+    }
+  }
   /**
    * This function finds a phone number of an Customer in accordance to next rule:
    * - account -> holders -> User -> User Customer Links -> Customer.phone_number

@@ -96,6 +96,12 @@ object ApiRole {
   
   case class CanGetCustomer(requiresBankId: Boolean = true) extends ApiRole
   lazy val canGetCustomer = CanGetCustomer()
+  
+  case class CanGetCustomerOverview(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canGetCustomerOverview = CanGetCustomerOverview()  
+  
+  case class CanGetCustomerOverviewFlat(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canGetCustomerOverviewFlat = CanGetCustomerOverviewFlat()
 
   case class CanCreateCustomer(requiresBankId: Boolean = true) extends ApiRole
   lazy val canCreateCustomer = CanCreateCustomer()
@@ -243,6 +249,21 @@ object ApiRole {
 
   case class CanGetCardsForBank(requiresBankId: Boolean = true) extends ApiRole
   lazy val canGetCardsForBank = CanGetCardsForBank()
+
+  case class CanCreateCustomerAccountLink(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canCreateCustomerAccountLink = CanCreateCustomerAccountLink()
+
+  case class CanUpdateCustomerAccountLink(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canUpdateCustomerAccountLink = CanUpdateCustomerAccountLink()
+
+  case class CanDeleteCustomerAccountLink(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canDeleteCustomerAccountLink = CanDeleteCustomerAccountLink()
+
+  case class CanGetCustomerAccountLink(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canGetCustomerAccountLink = CanGetCustomerAccountLink()
+  
+  case class CanGetCustomerAccountLinks(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canGetCustomerAccountLinks = CanGetCustomerAccountLinks()
   
   case class CanCreateBranch(requiresBankId: Boolean = true) extends ApiRole
   lazy val canCreateBranch = CanCreateBranch()
@@ -330,9 +351,18 @@ object ApiRole {
 
   case class CanReadMetrics (requiresBankId: Boolean = false) extends ApiRole
   lazy val canReadMetrics = CanReadMetrics()
+  
+  case class CanGetMetricsAtOneBank(requiresBankId: Boolean = true) extends ApiRole
+  lazy val canGetMetricsAtOneBank = CanGetMetricsAtOneBank()
 
   case class CanGetConfig(requiresBankId: Boolean = false) extends ApiRole
   lazy val canGetConfig = CanGetConfig()
+  
+  case class CanGetAdapterInfo(requiresBankId: Boolean = false) extends ApiRole
+  lazy val canGetAdapterInfo = CanGetAdapterInfo()
+  
+  case class CanGetAdapterInfoAtOneBank(requiresBankId: Boolean = false) extends ApiRole
+  lazy val canGetAdapterInfoAtOneBank = CanGetAdapterInfoAtOneBank()
   
   case class CanGetDatabaseInfo(requiresBankId: Boolean = false) extends ApiRole
   lazy val canGetDatabaseInfo = CanGetDatabaseInfo()

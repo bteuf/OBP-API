@@ -3,6 +3,7 @@ package code.api.v3_1_0
 import java.text.SimpleDateFormat
 import java.util.UUID
 import java.util.regex.Pattern
+
 import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON._
 import code.api.ResourceDocs1_4_0.{MessageDocsSwaggerDefinitions, ResourceDocsAPIMethodsUtil, SwaggerDefinitionsJSON, SwaggerJSONFactory}
 import code.api.util.APIUtil.{getWebUIPropsPairs, _}
@@ -16,7 +17,7 @@ import code.api.v1_2_1.{JSONFactory, RateLimiting}
 import code.api.v2_0_0.CreateMeetingJson
 import code.api.v2_1_0._
 import code.api.v2_2_0.{CreateAccountJSONV220, JSONFactory220}
-import code.api.v3_0_0.JSONFactory300
+import code.api.v3_0_0.{CreateViewJsonV300, JSONFactory300}
 import code.api.v3_0_0.JSONFactory300.createAdapterInfoJson
 import code.api.v3_1_0.JSONFactory310._
 import code.bankconnectors.rest.RestConnector_vMar2019
@@ -258,13 +259,13 @@ trait APIMethods310 {
         |
         |Should be able to filter on the following fields
         |
-        |eg: /management/metrics/top-apis?from_date=$DefaultFromDateString&to_date=$DefaultToDateString&consumer_id=5
+        |eg: /management/metrics/top-apis?from_date=$epochTimeString&to_date=$DefaultToDateString&consumer_id=5
         |&user_id=66214b8e-259e-44ad-8868-3eb47be70646&implemented_by_partial_function=getTransactionsForBankAccount
         |&implemented_in_version=v3.0.0&url=/obp/v3.0.0/banks/gh.29.uk/accounts/8ca8a7e4-6d02-48e3-a029-0b2bf89de9f0/owner/transactions
         |&verb=GET&anon=false&app_name=MapperPostman
         |&exclude_app_names=API-EXPLORER,API-Manager,SOFI,null
         |
-        |1 from_date (defaults to the one year ago): eg:from_date=$DefaultFromDateString
+        |1 from_date (defaults to the one year ago): eg:from_date=$epochTimeString
         |
         |2 to_date (defaults to the current date) eg:to_date=$DefaultToDateString
         |
@@ -320,10 +321,8 @@ trait APIMethods310 {
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canReadMetrics, callContext)
             
             httpParams <- NewStyle.function.extractHttpParamsFromUrl(cc.url)
-              
-            obpQueryParams <- createQueriesByHttpParamsFuture(httpParams) map {
-              unboxFullOrFail(_, callContext, InvalidFilterParameterFormat)
-            }
+
+            (obpQueryParams, callContext) <- createQueriesByHttpParamsFuture(httpParams, callContext)
             
             toApis <- APIMetrics.apiMetrics.vend.getTopApisFuture(obpQueryParams) map {
                 unboxFullOrFail(_, callContext, GetTopApisError)
@@ -344,14 +343,14 @@ trait APIMethods310 {
         |
         |Should be able to filter on the following fields
         |
-        |e.g.: /management/metrics/top-consumers?from_date=$DefaultFromDateString&to_date=$DefaultToDateString&consumer_id=5
+        |e.g.: /management/metrics/top-consumers?from_date=$epochTimeString&to_date=$DefaultToDateString&consumer_id=5
         |&user_id=66214b8e-259e-44ad-8868-3eb47be70646&implemented_by_partial_function=getTransactionsForBankAccount
         |&implemented_in_version=v3.0.0&url=/obp/v3.0.0/banks/gh.29.uk/accounts/8ca8a7e4-6d02-48e3-a029-0b2bf89de9f0/owner/transactions
         |&verb=GET&anon=false&app_name=MapperPostman
         |&exclude_app_names=API-EXPLORER,API-Manager,SOFI,null
         |&limit=100
         |
-        |1 from_date (defaults to the one year ago): eg:from_date=$DefaultFromDateString
+        |1 from_date (defaults to the one year ago): eg:from_date=$epochTimeString
         |
         |2 to_date (defaults to the current date) eg:to_date=$DefaultToDateString
         |
@@ -409,10 +408,8 @@ trait APIMethods310 {
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canReadMetrics, callContext)
             
             httpParams <- NewStyle.function.extractHttpParamsFromUrl(cc.url)
-              
-            obpQueryParams <- createQueriesByHttpParamsFuture(httpParams) map {
-                unboxFullOrFail(_, callContext, InvalidFilterParameterFormat)
-            }
+
+            (obpQueryParams, callContext) <- createQueriesByHttpParamsFuture(httpParams, callContext)
             
             topConsumers <- APIMetrics.apiMetrics.vend.getTopConsumersFuture(obpQueryParams) map {
               unboxFullOrFail(_, callContext, GetMetricsTopConsumersError)
@@ -469,7 +466,7 @@ trait APIMethods310 {
             (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
             allowedParams = List("sort_direction", "limit", "offset", "from_date", "to_date")
             httpParams <- NewStyle.function.extractHttpParamsFromUrl(cc.url)
-            obpQueryParams <- NewStyle.function.createObpParams(httpParams, allowedParams, callContext)
+            (obpQueryParams, callContext) <- NewStyle.function.createObpParams(httpParams, allowedParams, callContext)
             customers <- NewStyle.function.getCustomers(bankId, callContext, obpQueryParams)
             reqParams = req.params.filterNot(param => allowedParams.contains(param._1))
             (customersFiltered, callContext) <- if(reqParams.isEmpty) {
@@ -1001,7 +998,7 @@ trait APIMethods310 {
             _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canGetWebhooks, callContext)
             httpParams <- NewStyle.function.extractHttpParamsFromUrl(cc.url)
             allowedParams = List("limit", "offset", "account_id", "user_id")
-            obpParams <- NewStyle.function.createObpParams(httpParams, allowedParams, callContext)
+            (obpParams, callContext) <- NewStyle.function.createObpParams(httpParams, allowedParams, callContext)
             additionalParam = OBPBankId(bankId.value)
             webhooks <- NewStyle.function.getAccountWebhooks(additionalParam :: obpParams, callContext)
           } yield {
@@ -1058,15 +1055,18 @@ trait APIMethods310 {
       """.stripMargin,
       emptyObjectJson,
       adapterInfoJsonV300,
-      List(UserNotLoggedIn, UnknownError),
-      List(apiTagApi, apiTagNewStyle))
+      List(UserNotLoggedIn,UserHasMissingRoles, UnknownError),
+      List(apiTagApi, apiTagNewStyle),
+      Some(List(canGetAdapterInfo))
+    )
 
 
     lazy val getAdapterInfo: OBPEndpoint = {
       case "adapter" :: Nil JsonGet _ => {
         cc =>
           for {
-            (_, callContext) <- anonymousAccess(cc)
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canGetAdapterInfo, callContext)
             (ai,_) <- NewStyle.function.getAdapterInfo(callContext)
           } yield {
             (createAdapterInfoJson(ai), HttpCode.`200`(callContext))
@@ -3881,7 +3881,7 @@ trait APIMethods310 {
         | 
         | Please note that system views cannot be public. In case you try to set it you will get the error $SystemViewCannotBePublicError
         | """,
-      SwaggerDefinitionsJSON.createSystemViewJson,
+      SwaggerDefinitionsJSON.createSystemViewJsonV300,
       viewJsonV300,
       List(
         UserNotLoggedIn,
@@ -3901,12 +3901,12 @@ trait APIMethods310 {
             _ <- NewStyle.function.hasEntitlement("", user.userId, canCreateSystemView, callContext)
             failMsg = s"$InvalidJsonFormat The Json body should be the $CreateViewJson "
             createViewJson <- NewStyle.function.tryons(failMsg, 400, callContext) {
-              json.extract[CreateViewJson]
+              json.extract[CreateViewJsonV300]
             }
             _ <- Helper.booleanToFuture(SystemViewCannotBePublicError, failCode=400, cc=callContext) {
               createViewJson.is_public == false
             }
-            view <- NewStyle.function.createSystemView(createViewJson, callContext)
+            view <- NewStyle.function.createSystemView(createViewJson.toCreateViewJson, callContext)
           } yield {
             (JSONFactory310.createViewJSON(view),  HttpCode.`201`(callContext))
           }
@@ -3930,7 +3930,7 @@ trait APIMethods310 {
         "user does not have owner access"
       ),
       List(apiTagSystemView, apiTagNewStyle),
-      Some(List(canCreateSystemView))
+      Some(List(canDeleteSystemView))
     )
 
     lazy val deleteSystemView: OBPEndpoint = {
@@ -4814,6 +4814,8 @@ trait APIMethods310 {
               collected = collected,
               posted = posted,
               customerId = postJson.customer_id,
+              cvv = "",//added from  v500
+              brand = "",//added from  v500
               callContext
             )
           } yield {
@@ -4841,7 +4843,7 @@ trait APIMethods310 {
         UnknownError
       ),
       List(apiTagCard, apiTagNewStyle),
-      Some(List(canCreateCardsForBank)))
+      Some(List(canUpdateCardsForBank)))
     lazy val updatedCardForBank: OBPEndpoint = {
       case "management" :: "banks" :: BankId(bankId) :: "cards" :: cardId :: Nil JsonPut json -> _ => {
         cc =>
@@ -4928,9 +4930,7 @@ trait APIMethods310 {
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             httpParams <- NewStyle.function.extractHttpParamsFromUrl(cc.url)
-            obpQueryParams <- createQueriesByHttpParamsFuture(httpParams) map {
-              x => unboxFullOrFail(x, callContext, InvalidFilterParameterFormat)
-            }
+            (obpQueryParams, callContext) <- createQueriesByHttpParamsFuture(httpParams, callContext)
             _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canGetCardsForBank, callContext)
             (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
             (cards,callContext) <- NewStyle.function.getPhysicalCardsForBank(bank, u, obpQueryParams, callContext)
@@ -4957,7 +4957,8 @@ trait APIMethods310 {
       emptyObjectJson,
       physicalCardWithAttributesJsonV310,
       List(UserNotLoggedIn,BankNotFound, UnknownError),
-      List(apiTagCard, apiTagNewStyle))
+      List(apiTagCard, apiTagNewStyle),
+      Some(List(canGetCardsForBank)))
     lazy val getCardForBank : OBPEndpoint = {
       case "management" :: "banks" :: BankId(bankId) :: "cards" :: cardId ::  Nil JsonGet _ => {
         cc => {
