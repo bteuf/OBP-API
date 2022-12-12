@@ -33,7 +33,7 @@ import java.io.InputStream
 import code.api.Constant
 import code.api.util.APIUtil.{activeBrand, getRemoteIpAddress, getServerUrl}
 import code.api.util.ApiRole.CanReadGlossary
-import code.api.util.{APIUtil, ApiRole, CustomJsonFormats, ErrorMessages, PegdownOptions}
+import code.api.util.{APIUtil, ApiRole, CustomJsonFormats, ErrorMessages, I18NUtil, PegdownOptions}
 import code.model.dataAccess.AuthUser
 import code.util.Helper.MdcLoggable
 import net.liftweb.http.{LiftRules, S, SessionVar}
@@ -90,11 +90,14 @@ class WebUI extends MdcLoggable{
       if (supportedLocales.contains(locale) || supportedLocales.contains(hyphenLocale) ) {""} else {"none"}
     }
     val page = Constant.HostName + S.uri
+    val language = I18NUtil.currentLocale().getLanguage()
+
     "#es a [href]" #> scala.xml.Unparsed(s"${page}?${replaceLocale("locale=es_ES")}") &
       "#en a [href]" #> scala.xml.Unparsed(s"${page}?${replaceLocale("locale=en_GB")}") &
       "#es a [style]"  #> s"display: ${displayLanguage("es_ES")}" &
       "#locale_separator [style]"  #> {if(supportedLocales.size == 1) "display: none" else ""} &
-      "#en a [style]"  #> s"display: ${displayLanguage("en_GB")}"
+      "#en a [style]"  #> s"display: ${displayLanguage("en_GB")}" &
+      s"#${language.toLowerCase()} *" #> scala.xml.Unparsed(s"<b>${language.toUpperCase()}</b>")
     
   }
 
@@ -158,40 +161,54 @@ class WebUI extends MdcLoggable{
     "#top-text *" #> scala.xml.Unparsed(getWebUiPropsValue("webui_top_text", ""))
   }
 
-  val sdksHtmlLink = getWebUiPropsValue("webui_featured_sdks_external_link","")
+  val sdksExternalHtmlLink = getWebUiPropsValue("webui_featured_sdks_external_link","")
   
-  val sdksHtmlContent = try{
-    if (sdksHtmlLink.isEmpty)//If the webui_featured_sdks_external_link is not set, we will read the internal sdks.html file instead.
-      LiftRules.getResource("/sdks.html").map{ url =>
-        Source.fromURL(url, "UTF-8").mkString
-      }.openOrThrowException("Please check the content of this file: src/main/webapp/sdks.html")
-    else
-      Source.fromURL(sdksHtmlLink, "UTF-8").mkString
-  }catch {
+  val sdksExternalHtmlContent = try {
+      Source.fromURL(sdksExternalHtmlLink, "UTF-8").mkString
+  } catch {
     case _ : Throwable => "<h1>SDK Showcases is wrong, please check the props `webui_featured_sdks_external_link` </h1>"
   }
   
   // webui_featured_sdks_external_link props, we can set the sdks here. check the `SDK Showcases` in Homepage, and you can see all the sdks.
-  def featuredSdksHtml: CssSel = {
-    "#main-showcases *" #> scala.xml.Unparsed(sdksHtmlContent)
+  def featuredExternalSdksHtml: CssSel = {
+    if (sdksExternalHtmlLink.isEmpty) {
+      "#main-showcases-external [style]" #> "display:none"
+    } else {
+      "#main-showcases-external [style]" #> "display:block" &
+      "#main-showcases-external *" #> scala.xml.Unparsed(sdksExternalHtmlContent)
+    }
+  }
+  def featuredInternalSdksHtml: CssSel = {
+    if (sdksExternalHtmlLink.isEmpty) {
+      "#main-showcases-div [style]" #> "display:block"
+    } else {
+      "#main-showcases-div [style]" #> "display:none"
+    }
   }
 
   val mainFaqHtmlLink = getWebUiPropsValue("webui_main_faq_external_link","")
   
-  val mainFaqHtmlContent = try{
-    if (mainFaqHtmlLink.isEmpty)//If the webui_featured_sdks_external_link is not set, we will read the internal sdks.html file instead.
-      LiftRules.getResource("/main-faq.html").map{ url =>
-        Source.fromURL(url, "UTF-8").mkString
-      }.openOrThrowException("Please check the content of this file: src/main/webapp/main-faq.html")
-    else
-      Source.fromURL(mainFaqHtmlLink, "UTF-8").mkString
-  }catch {
+  val mainFaqExternalHtmlContent = try {
+    Source.fromURL(mainFaqHtmlLink, "UTF-8").mkString
+  } catch {
     case _ : Throwable => "<h1>FAQs is wrong, please check the props `webui_main_faq_external_link` </h1>"
   }
 
   // webui_featured_sdks_external_link props, we can set the sdks here. check the `SDK Showcases` in Homepage, and you can see all the sdks.
-  def mainFaqHtml: CssSel = {
-    "#main-faq *" #> scala.xml.Unparsed(mainFaqHtmlContent)
+  def mainFaqExternalHtml: CssSel = {
+    if (mainFaqHtmlLink.isEmpty) {
+      "#main-faq-external [style]" #> "display:none"
+    } else {
+      "#main-faq-external [style]" #> "display:block" &
+      "#main-faq-external *" #> scala.xml.Unparsed(mainFaqExternalHtmlContent)
+    }
+  }
+  def mainFaqInternalHtml: CssSel = {
+    if (mainFaqHtmlLink.isEmpty) {
+      "#main-faq-internal [style]" #> "display:block"
+    } else {
+      "#main-faq-internal [style]" #> "display:none"
+    }
   }
 
   val brandString = activeBrand match {
@@ -203,19 +220,32 @@ class WebUI extends MdcLoggable{
 
   def apiExplorerLink: CssSel = {
     val tags = S.attr("tags") openOr ""
+    val locale = S.locale.toString
     // Note the Props value might contain a query parameter e.g. ?psd2=true
     val baseUrl = getWebUiPropsValue("webui_api_explorer_url", "")
     // hack (we should use url operators instead) so we can add further query parameters if one is already included in the the baseUrl
     val baseUrlWithQ =  baseUrl.contains("?") match {
-      case true => baseUrl +  s"&tags=$tags${brandString}" // ? found so add & instead
-      case false => baseUrl + s"?tags=$tags${brandString}" // ? not found so add it.
+      case true => baseUrl +  s"&tags=$tags${brandString}&locale=${locale}" // ? found so add & instead
+      case false => baseUrl + s"?tags=$tags${brandString}&locale=${locale}" // ? not found so add it.
     }
     ".api-explorer-link a [href]" #> scala.xml.Unparsed(baseUrlWithQ)
+  }
+  
+  def wrapPropsUrlLocaleParameter (propsKey: String) = {
+    val localeString = S.locale.toString
+    // Note the Props value might contain a query parameter e.g. ?psd2=true
+    val baseUrl = getWebUiPropsValue(propsKey, "")
+    // hack (we should use url operators instead) so we can add further query parameters if one is already included in the the baseUrl
+    val baseUrlWithQ = baseUrl.contains("?") match {
+      case true => baseUrl +  s"&${brandString}&locale=$localeString" // ? found so add & instead
+      case false => baseUrl + s"?${brandString}&locale=$localeString" // ? not found so add it.
+    }
+    scala.xml.Unparsed(baseUrlWithQ)
   }
 
   // Link to API Manager
   def apiManagerLink: CssSel = {
-    ".api-manager-link a [href]" #> scala.xml.Unparsed(getWebUiPropsValue("webui_api_manager_url", ""))
+    ".api-manager-link a [href]" #> wrapPropsUrlLocaleParameter("webui_api_manager_url")
   }
   
   // Link to OBP-CLI
@@ -225,11 +255,11 @@ class WebUI extends MdcLoggable{
 
   // Link to API Tester
   def apiTesterLink: CssSel = {
-    ".api-tester-link a [href]" #> scala.xml.Unparsed(getWebUiPropsValue("webui_api_tester_url", ""))
+    ".api-tester-link a [href]" #> wrapPropsUrlLocaleParameter("webui_api_tester_url")
   }
   // Link to Hola app
   def apiHolaLink: CssSel = {
-    ".api-hola-link a [href]" #> scala.xml.Unparsed(getWebUiPropsValue("webui_api_hola_url", "#"))
+    ".api-hola-link a [href]" #> wrapPropsUrlLocaleParameter("webui_api_hola_url") 
   }
 
   // Link to API
@@ -249,7 +279,7 @@ class WebUI extends MdcLoggable{
 
   // Social Finance (Sofi)
   def sofiLink: CssSel = {
-    ".sofi-link a [href]" #> scala.xml.Unparsed(getWebUiPropsValue("webui_sofi_url", ""))
+    ".sofi-link a [href]" #> wrapPropsUrlLocaleParameter("webui_sofi_url")
   }
   
   // Terms&Conditions

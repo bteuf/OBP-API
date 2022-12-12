@@ -47,7 +47,7 @@ class JSONFactory1_4_0Test  extends V140ServerSetup with DefaultUsers {
   feature("Test JSONFactory1_4_0") {
 
     scenario("prepareDescription should work well, extract the parameters from URL") {
-      val description = JSONFactory1_4_0.prepareDescription("BANK_ID")
+      val description = JSONFactory1_4_0.prepareDescription("BANK_ID", Nil)
       description.contains("[BANK_ID](/glossary#Bank.bank_id): gh.29.uk") should be (true)
     }
     
@@ -95,14 +95,14 @@ class JSONFactory1_4_0Test  extends V140ServerSetup with DefaultUsers {
 //      logger.debug(prettyRender(result))
     }
 
-    scenario("validate all the resouceDocs json schema, no exception is good enough") {
+    scenario("validate all the resourceDocs json schema, no exception is good enough") {
       val resourceDocsRaw= OBPAPI3_0_0.allResourceDocs
       val resourceDocs = JSONFactory1_4_0.createResourceDocsJson(resourceDocsRaw.toList,false, None)
 
       for{
-        resouceDoc <- resourceDocs.resource_docs
-        json <- List(compactRender(decompose(resouceDoc.success_response_body)))
-        jsonSchema <- List(compactRender(resouceDoc.typed_success_response_body))
+        resourceDoc <- resourceDocs.resource_docs if (resourceDoc.request_verb != "DELETE")
+        json <- List(compactRender(decompose(resourceDoc.success_response_body)))
+        jsonSchema <- List(compactRender(resourceDoc.typed_success_response_body))
       } yield {
         val rawSchema = new JSONObject(jsonSchema)
         val schema = SchemaLoader.load(rawSchema)

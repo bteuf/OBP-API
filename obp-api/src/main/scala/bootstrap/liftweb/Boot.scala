@@ -39,7 +39,7 @@ import code.accountattribute.MappedAccountAttribute
 import code.accountholders.MapperAccountHolders
 import code.actorsystem.ObpActorSystem
 import code.api.Constant._
-import code.api.ResourceDocs1_4_0.ResourceDocs300.{ResourceDocs310, ResourceDocs400}
+import code.api.ResourceDocs1_4_0.ResourceDocs300.{ResourceDocs310, ResourceDocs400, ResourceDocs500}
 import code.api.ResourceDocs1_4_0._
 import code.api._
 import code.api.attributedefinition.AttributeDefinition
@@ -84,7 +84,7 @@ import code.metadata.tags.MappedTag
 import code.metadata.transactionimages.MappedTransactionImage
 import code.metadata.wheretags.MappedWhereTag
 import code.methodrouting.MethodRouting
-import code.metrics.{MappedConnectorMetric, MappedMetric}
+import code.metrics.{MappedConnectorMetric, MappedMetric, MetricsArchive}
 import code.migration.MigrationScriptLog
 import code.model.{Consumer, _}
 import code.model.dataAccess._
@@ -96,12 +96,13 @@ import code.productcollectionitem.MappedProductCollectionItem
 import code.products.MappedProduct
 import code.ratelimiting.RateLimiting
 import code.remotedata.RemotedataActors
-import code.scheduler.DatabaseDriverScheduler
+import code.scheduler.{DatabaseDriverScheduler, MetricsArchiveScheduler}
 import code.scope.{MappedScope, MappedUserScope}
 import code.apicollectionendpoint.ApiCollectionEndpoint
 import code.apicollection.ApiCollection
 import code.bankattribute.BankAttribute
 import code.connectormethod.ConnectorMethod
+import code.customeraccountlinks.CustomerAccountLink
 import code.dynamicMessageDoc.DynamicMessageDoc
 import code.dynamicResourceDoc.DynamicResourceDoc
 import code.endpointMapping.EndpointMapping
@@ -121,7 +122,7 @@ import code.transactionattribute.MappedTransactionAttribute
 import code.transactionrequests.{MappedTransactionRequest, MappedTransactionRequestTypeCharge, TransactionRequestReasons}
 import code.usercustomerlinks.MappedUserCustomerLink
 import code.userlocks.UserLocks
-import code.users.{UserAgreement, UserAttribute, UserInitAction, UserInvitation}
+import code.users.{UserAgreement, UserAttribute, UserInitAction, UserInvitation, Users}
 import code.util.Helper.MdcLoggable
 import code.util.{Helper, HydraUtil}
 import code.validation.JsonSchemaValidation
@@ -129,7 +130,7 @@ import code.views.Views
 import code.views.system.{AccountAccess, ViewDefinition}
 import code.webhook.{BankAccountNotificationWebhook, MappedAccountWebhook, SystemAccountNotificationWebhook, WebhookHelperActors}
 import code.webuiprops.WebUiProps
-import com.openbankproject.commons.model.ErrorMessage
+import com.openbankproject.commons.model.{ErrorMessage, User}
 import com.openbankproject.commons.util.Functions.Implicits._
 import com.openbankproject.commons.util.{ApiVersion, Functions}
 import javax.mail.{Authenticator, PasswordAuthentication}
@@ -466,6 +467,7 @@ class Boot extends MdcLoggable {
     LiftRules.statelessDispatch.append(ResourceDocs300)
     LiftRules.statelessDispatch.append(ResourceDocs310)
     LiftRules.statelessDispatch.append(ResourceDocs400)
+    LiftRules.statelessDispatch.append(ResourceDocs500)
     ////////////////////////////////////////////////////
 
 
@@ -609,7 +611,11 @@ class Boot extends MdcLoggable {
         // In case it's true we use that value to set up a new cookie value
         S.param("locale") match {
           case Full(requestedLocale) if requestedLocale != null => {
-            val computedLocale = I18NUtil.computeLocale(requestedLocale)
+            val computedLocale: Locale = I18NUtil.computeLocale(requestedLocale)
+            val id: Long = AuthUser.getCurrentUser.map(_.user.userPrimaryKey.value).getOrElse(0)
+            Users.users.vend.getResourceUserByResourceUserId(id).map { 
+              u => u.LastUsedLocale(computedLocale.toString).save
+            }
             S.addCookie(HTTPCookie(localeCookieName, requestedLocale))
             computedLocale
           }
@@ -677,6 +683,7 @@ class Boot extends MdcLoggable {
       case Full(i) => DatabaseDriverScheduler.start(i)
       case _ => // Do not start it
     }
+    MetricsArchiveScheduler.start(intervalInSeconds = 86400)
     
 
     APIUtil.akkaSanityCheck() match {
@@ -725,8 +732,8 @@ class Boot extends MdcLoggable {
       val owner = Views.views.vend.getOrCreateSystemView(SYSTEM_OWNER_VIEW_ID).isDefined
       val auditor = Views.views.vend.getOrCreateSystemView(SYSTEM_AUDITOR_VIEW_ID).isDefined
       val accountant = Views.views.vend.getOrCreateSystemView(SYSTEM_ACCOUNTANT_VIEW_ID).isDefined
-      val smallPaymentVerified = Views.views.vend.getOrCreateSystemView(SYSTEM_SMALL_PAYMENT_VERIFIED_VIEW_ID).isDefined
-      val accountHolder = Views.views.vend.getOrCreateSystemView(SYSTEM_STAGE_ONE_VIEW_ID).isDefined
+      val standard = Views.views.vend.getOrCreateSystemView(SYSTEM_STANDARD_VIEW_ID).isDefined
+      val stageOne = Views.views.vend.getOrCreateSystemView(SYSTEM_STAGE_ONE_VIEW_ID).isDefined
       // Only create Firehose view if they are enabled at instance.
       val accountFirehose = if (ApiPropsWithAlias.allowAccountFirehose)
         Views.views.vend.getOrCreateSystemView(SYSTEM_FIREHOSE_VIEW_ID).isDefined
@@ -738,8 +745,8 @@ class Boot extends MdcLoggable {
            |System view ${SYSTEM_AUDITOR_VIEW_ID} exists/created at the instance: ${auditor}
            |System view ${SYSTEM_ACCOUNTANT_VIEW_ID} exists/created at the instance: ${accountant}
            |System view ${SYSTEM_FIREHOSE_VIEW_ID} exists/created at the instance: ${accountFirehose}
-           |System view ${SYSTEM_SMALL_PAYMENT_VERIFIED_VIEW_ID} exists/created at the instance: ${smallPaymentVerified}
-           |System view ${SYSTEM_STAGE_ONE_VIEW_ID} exists/created at the instance: ${accountHolder}
+           |System view ${SYSTEM_STANDARD_VIEW_ID} exists/created at the instance: ${standard}
+           |System view ${SYSTEM_STAGE_ONE_VIEW_ID} exists/created at the instance: ${stageOne}
            |""".stripMargin
       logger.info(comment)
 
@@ -920,6 +927,8 @@ class Boot extends MdcLoggable {
 
 object ToSchemify {
   // The following tables will be accessed via Akka to the OBP Storage instance which in turn uses Mapper / JDBC
+  // TODO EPIC The aim is to have all models prefixed with "Mapped" but table names should not be prefixed with "Mapped
+  // TODO EPIC The aim is to remove all field name prefixes("m")
   val modelsRemotedata: List[MetaMapper[_]] = List(
     AccountAccess,
     ViewDefinition,
@@ -945,6 +954,7 @@ object ToSchemify {
     MappedTransactionRequest,
     TransactionRequestAttribute,
     MappedMetric,
+    MetricsArchive,
     MapperAccountHolders,
     MappedEntitlement,
     MappedConnectorMetric,
@@ -967,7 +977,8 @@ object ToSchemify {
     BankAttribute,
     RateLimiting,
     MappedCustomerDependant,
-    AttributeDefinition
+    AttributeDefinition,
+    CustomerAccountLink
   )
 
   // The following tables are accessed directly via Mapper / JDBC

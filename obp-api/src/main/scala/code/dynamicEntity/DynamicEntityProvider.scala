@@ -53,7 +53,11 @@ trait DynamicEntityT {
   //---------util methods
 
   lazy val userIdJobject: JObject = ("userId" -> userId)
-  private lazy val definition: JObject = parse(metadataJson).asInstanceOf[JObject] merge userIdJobject
+  lazy val bankIdJobject: JObject = ("bankId" -> bankId.getOrElse(""))
+  private lazy val definition: JObject = if(bankId.isDefined)
+    parse(metadataJson).asInstanceOf[JObject] merge userIdJobject merge bankIdJobject
+  else
+    parse(metadataJson).asInstanceOf[JObject] merge userIdJobject
   //convert metadataJson to JValue, so the final json field metadataJson have no escaped " to \", have good readable
   lazy val jValue = dynamicEntityId match {
     case Some(id) => {
@@ -538,7 +542,7 @@ trait DynamicEntityProvider {
 
   //Note, we use entity name to create the roles, and bank level and system level can not be mixed, 
   // so --> here can not use bankId as parameters: 
-  def getByEntityName(entityName: String): Box[DynamicEntityT]
+  def getByEntityName(bankId: Option[String], entityName: String): Box[DynamicEntityT]
 
   def getDynamicEntities(bankId: Option[String]): List[DynamicEntityT]
   

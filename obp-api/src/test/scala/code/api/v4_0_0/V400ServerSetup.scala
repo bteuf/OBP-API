@@ -4,7 +4,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import code.api.Constant._
 import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON
-import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON.createViewJson
+import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON.createViewJsonV300
 import code.api.util.APIUtil.OAuth.{Consumer, Token, _}
 import code.api.util.ApiRole.{CanCreateAccountAttributeAtOneBank, CanCreateCustomer, CanCreateProduct, _}
 import code.api.util.{APIUtil, ApiRole}
@@ -36,6 +36,7 @@ import scala.util.Random.nextInt
 trait V400ServerSetup extends ServerSetupWithTestData with DefaultUsers {
 
   def v4_0_0_Request: Req = baseRequest / "obp" / "v4.0.0"
+  def v5_0_0_Request: Req = baseRequest / "obp" / "v5.0.0"
   def dynamicEndpoint_Request: Req = baseRequest / "obp" / ApiShortVersions.`dynamic-endpoint`.toString
   def dynamicEntity_Request: Req = baseRequest / "obp" / ApiShortVersions.`dynamic-entity`.toString
 
@@ -69,7 +70,7 @@ trait V400ServerSetup extends ServerSetupWithTestData with DefaultUsers {
   def randomOwnerViewPermalinkViaEndpoint(bankId: String, account: AccountJSON) : String = {
     val request = v4_0_0_Request / "banks" / bankId / "accounts" / account.id / "views" <@(consumer, token1)
     val reply = makeGetRequest(request)
-    val possibleViewsPermalinks = reply.body.extract[ViewsJSONV121].views.filterNot(_.is_public==true).filter(_.id == CUSTOM_OWNER_VIEW_ID)
+    val possibleViewsPermalinks = reply.body.extract[ViewsJSONV121].views.filterNot(_.is_public==true).filter(_.id == SYSTEM_OWNER_VIEW_ID)
     val randomPosition = nextInt(possibleViewsPermalinks.size)
     possibleViewsPermalinks(randomPosition).id
   }
@@ -182,19 +183,24 @@ trait V400ServerSetup extends ServerSetupWithTestData with DefaultUsers {
     responseCreate310.body.extract[AccountAttributeResponseJson]
   }
   
-  // This will call create customer ,then return the customerId
-  def createAndGetCustomerIdViaEndpoint(bankId:String, consumerAndToken: Option[(Consumer, Token)]) = {
+  private def createCustomer(bankId:String, userId: String) = {
     val postCustomerJson = SwaggerDefinitionsJSON.postCustomerJsonV310
-    def createCustomer(consumerAndToken: Option[(Consumer, Token)]) ={
-      Entitlement.entitlement.vend.addEntitlement(bankId, resourceUser1.userId, CanCreateCustomer.toString)
-      When("We make a request v3.1.0")
-      val request310 = (v4_0_0_Request / "banks" / bankId / "customers").POST <@(user1)
-      val response310 = makePostRequest(request310, write(postCustomerJson))
-      Then("We should get a 201")
-      response310.code should equal(201)
-      response310.body.extract[CustomerJsonV310]
-    }
-    createCustomer(consumerAndToken).customer_id
+    Entitlement.entitlement.vend.addEntitlement(bankId, userId, CanCreateCustomer.toString)
+    When("We make a request v3.1.0")
+    val request310 = (v4_0_0_Request / "banks" / bankId / "customers").POST <@(user1)
+    val response310 = makePostRequest(request310, write(postCustomerJson))
+    Then("We should get a 201")
+    response310.code should equal(201)
+    response310.body.extract[CustomerJsonV310]
+  }
+  
+  // This will call create customer ,then return the customerId
+  def createAndGetCustomerIdViaEndpoint(bankId:String, userId: String = resourceUser1.userId) = {
+    createCustomer(bankId, userId).customer_id
+  }
+  // This will call create customer ,then return the customerId
+  def createCustomerViaEndpointAndGetNumber(bankId:String, userId: String) = {
+    createCustomer(bankId, userId).customer_number
   } 
   
   //This will call create user customer link
@@ -358,7 +364,7 @@ trait V400ServerSetup extends ServerSetupWithTestData with DefaultUsers {
     // Create to account
     val toAccount = createAccountViaEndpoint(bank.bankId.value, addAccountJson2, user1)
     // Create a custom view
-    val customViewJson = createViewJson.copy(name = "_cascade_delete", metadata_view = "_cascade_delete", is_public = false)
+    val customViewJson = createViewJsonV300.copy(name = "_cascade_delete", metadata_view = "_cascade_delete", is_public = false).toCreateViewJson
     val customView = createViewViaEndpoint(bank.bankId.value, fromAccount.account_id, customViewJson, user1)
     // Grant access to the view
     grantUserAccessToViewViaEndpoint(

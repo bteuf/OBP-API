@@ -53,9 +53,9 @@ import net.liftweb.json.JsonDSL._
 import net.liftweb.json.{JField, JInt, JNothing, JNull, JObject, JString, JValue, _}
 import net.liftweb.util.Helpers.tryo
 import org.apache.commons.lang3.StringUtils
-
 import java.security.AccessControlException
-import scala.collection.immutable.List
+
+import scala.collection.immutable.{List, Nil}
 import scala.concurrent.Future
 import scala.math.BigDecimal
 import scala.reflect.runtime.universe.MethodSymbol
@@ -68,6 +68,7 @@ import code.api.v4_0_0.JSONFactory400
 import code.api.dynamic.endpoint.helper.DynamicEndpointHelper
 import code.bankattribute.BankAttribute
 import code.connectormethod.{ConnectorMethodProvider, JsonConnectorMethod}
+import code.customeraccountlinks.CustomerAccountLinkTrait
 import code.dynamicMessageDoc.{DynamicMessageDocProvider, JsonDynamicMessageDoc}
 import code.dynamicResourceDoc.{DynamicResourceDocProvider, JsonDynamicResourceDoc}
 import code.endpointMapping.{EndpointMappingProvider, EndpointMappingT}
@@ -653,6 +654,9 @@ object NewStyle extends MdcLoggable{
       Views.views.vend.systemViewFuture(viewId) map {
         unboxFullOrFail(_, callContext, s"$SystemViewNotFound. Current ViewId is $viewId")
       }
+    }    
+    def systemViews(): Future[List[View]] = {
+      Views.views.vend.getSystemViews()
     }
     def grantAccessToCustomView(view : View, user: User, callContext: Option[CallContext]) : Future[View] = {
       view.isSystem match {
@@ -959,25 +963,21 @@ object NewStyle extends MdcLoggable{
     def extractHttpParamsFromUrl(url: String): Future[List[HTTPParam]] = {
       createHttpParamsByUrlFuture(url) map { unboxFull(_) }
     }
-    def createObpParams(httpParams: List[HTTPParam], allowedParams: List[String], callContext: Option[CallContext]): Future[List[OBPQueryParam]] = {
+    def createObpParams(httpParams: List[HTTPParam], allowedParams: List[String], callContext: Option[CallContext]): OBPReturnType[List[OBPQueryParam]] = {
       val httpParamsAllowed = httpParams.filter(
         x => allowedParams.contains(x.name)
       )
-      createQueriesByHttpParamsFuture(httpParamsAllowed) map {
-        x => fullBoxOrException(x ~> APIFailureNewStyle(InvalidFilterParameterFormat, 400, callContext.map(_.toLight)))
-      } map { unboxFull(_) }
+      createQueriesByHttpParamsFuture(httpParamsAllowed, callContext)
     }
     
     def extractQueryParams(url: String,
                            allowedParams: List[String],
-                           callContext: Option[CallContext]): Future[List[OBPQueryParam]] = {
+                           callContext: Option[CallContext]): OBPReturnType[List[OBPQueryParam]] = {
       val httpParams = createHttpParamsByUrl(url).toList.flatten
       val httpParamsAllowed = httpParams.filter(
         x => allowedParams.contains(x.name)
       )
-      createQueriesByHttpParamsFuture(httpParamsAllowed) map {
-        x => fullBoxOrException(x ~> APIFailureNewStyle(InvalidFilterParameterFormat, 400, callContext.map(_.toLight)))
-      } map { unboxFull(_) }
+      createQueriesByHttpParamsFuture(httpParamsAllowed, callContext)
     }
     
     
@@ -1873,6 +1873,17 @@ object NewStyle extends MdcLoggable{
         i => (connectorEmptyResponse(i._1, callContext), i._2)
       }
     }
+
+    def getAccountAttributesForAccounts(bankId: BankId,
+                                        accounts: List[BankAccount],
+                                        callContext: Option[CallContext]): OBPReturnType[ List[ (BankAccount, List[AccountAttribute]) ]] = {
+      Future.sequence(accounts.map( account =>
+        Connector.connector.vend.getAccountAttributesByAccount(bankId, AccountId(account.accountId.value), callContext: Option[CallContext]) map { i =>
+          (connectorEmptyResponse(i._1.map(x => (account,x)), callContext), i._2)
+        }
+      )).map(t => (t.map(_._1), callContext))
+    }
+    
     def getModeratedAccountAttributesByAccount(bankId: BankId, 
                                                accountId: AccountId, 
                                                viewId: ViewId, 
@@ -2514,6 +2525,53 @@ object NewStyle extends MdcLoggable{
       ) map {
         i => (unboxFullOrFail(i._1, callContext, CreateCustomerError), i._2)
       }
+    def createCustomerC2(
+                        bankId: BankId,
+                        legalName: String,
+                        customerNumber: String,
+                        mobileNumber: String,
+                        email: String,
+                        faceImage:
+                        CustomerFaceImageTrait,
+                        dateOfBirth: Date,
+                        relationshipStatus: String,
+                        dependents: Int,
+                        dobOfDependents: List[Date],
+                        highestEducationAttained: String,
+                        employmentStatus: String,
+                        kycStatus: Boolean,
+                        lastOkDate: Date,
+                        creditRating: Option[CreditRatingTrait],
+                        creditLimit: Option[AmountOfMoneyTrait],
+                        title: String,
+                        branchId: String,
+                        nameSuffix: String,
+                        callContext: Option[CallContext]): OBPReturnType[Customer] = 
+      Connector.connector.vend.createCustomerC2(
+        bankId: BankId,
+        legalName: String,
+        customerNumber: String,
+        mobileNumber: String,
+        email: String,
+        faceImage:
+          CustomerFaceImageTrait,
+        dateOfBirth: Date,
+        relationshipStatus: String,
+        dependents: Int,
+        dobOfDependents: List[Date],
+        highestEducationAttained: String,
+        employmentStatus: String,
+        kycStatus: Boolean,
+        lastOkDate: Date,
+        creditRating: Option[CreditRatingTrait],
+        creditLimit: Option[AmountOfMoneyTrait],
+        title: String,
+        branchId: String,
+        nameSuffix: String,
+        callContext: Option[CallContext]
+      ) map {
+        i => (unboxFullOrFail(i._1, callContext, CreateCustomerError), i._2)
+      }
 
     def updateCustomerScaData(customerId: String,
                               mobileNumber: Option[String],
@@ -2591,6 +2649,8 @@ object NewStyle extends MdcLoggable{
       collected: Option[CardCollectionInfo],
       posted: Option[CardPostedInfo],
       customerId: String,
+      cvv: String,
+      brand: String,
       callContext: Option[CallContext]
     ): OBPReturnType[PhysicalCard] = {
       validateBankId(bankId, callContext)
@@ -2616,6 +2676,8 @@ object NewStyle extends MdcLoggable{
         collected: Option[CardCollectionInfo],
         posted: Option[CardPostedInfo],
         customerId: String,
+        cvv: String,
+        brand: String,
         callContext: Option[CallContext]
       ) map {
         i => (unboxFullOrFail(i._1, callContext, s"$CreateCardError"), i._2)
@@ -2680,6 +2742,12 @@ object NewStyle extends MdcLoggable{
       Connector.connector.vend.getPhysicalCardsForBank(bank: Bank, user : User, queryParams: List[OBPQueryParam], callContext:Option[CallContext]) map {
         i => (unboxFullOrFail(i._1, callContext, CardNotFound), i._2)
       }
+
+    def getPhysicalCardByCardNumber(bankCardNumber: String,  callContext:Option[CallContext]) : OBPReturnType[PhysicalCardTrait] = {
+      Connector.connector.vend.getPhysicalCardByCardNumber(bankCardNumber: String,  callContext:Option[CallContext]) map {
+        i => (unboxFullOrFail(i._1, callContext, InvalidCardNumber), i._2)
+      }
+    }
 
     def getPhysicalCardForBank(bankId: BankId, cardId:String ,callContext:Option[CallContext]) : OBPReturnType[PhysicalCardTrait] =
       Connector.connector.vend.getPhysicalCardForBank(bankId: BankId, cardId: String, callContext:Option[CallContext]) map {
@@ -2936,10 +3004,14 @@ object NewStyle extends MdcLoggable{
     }
     
     private def createDynamicEntity(dynamicEntity: DynamicEntityT, callContext: Option[CallContext]): Future[Box[DynamicEntityT]] = {
-      val existsDynamicEntity = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(dynamicEntity.entityName)
+      val existsDynamicEntity = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(dynamicEntity.bankId, dynamicEntity.entityName)
 
       if(existsDynamicEntity.isDefined) {
-        val errorMsg = s"$DynamicEntityNameAlreadyExists current entityName is '${dynamicEntity.entityName}'."
+        val errorMsg = if (dynamicEntity.bankId.isEmpty)
+          s"$DynamicEntityNameAlreadyExists current entityName is '${dynamicEntity.entityName}'."
+        else
+          s"$DynamicEntityNameAlreadyExists current entityName is '${dynamicEntity.entityName}' bankId is ${dynamicEntity.bankId.getOrElse("")}."
+          
         return Helper.booleanToFuture(errorMsg, cc=callContext)(existsDynamicEntity.isEmpty).map(_.asInstanceOf[Box[DynamicEntityT]])
       }
 
@@ -2960,10 +3032,14 @@ object NewStyle extends MdcLoggable{
       val originEntityName = originEntity.map(_.entityName).orNull
       // if entityName changed and the new entityName already exists, return error message
       if(dynamicEntity.entityName != originEntityName) {
-        val existsDynamicEntity = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(dynamicEntity.entityName)
+        val existsDynamicEntity = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(dynamicEntity.bankId, dynamicEntity.entityName)
 
         if(existsDynamicEntity.isDefined) {
-          val errorMsg = s"$DynamicEntityNameAlreadyExists current entityName is '${dynamicEntity.entityName}'."
+          val errorMsg = if (dynamicEntity.bankId.isDefined)
+            s"$DynamicEntityNameAlreadyExists current entityName is '${dynamicEntity.entityName}' bankId(${dynamicEntity.bankId.getOrElse("")})"
+          else
+            s"$DynamicEntityNameAlreadyExists current entityName is '${dynamicEntity.entityName}'."
+            
           return Helper.booleanToFuture(errorMsg, cc=callContext)(existsDynamicEntity.isEmpty).map(_.asInstanceOf[Box[DynamicEntityT]])
         }
       }
@@ -3018,7 +3094,7 @@ object NewStyle extends MdcLoggable{
     def getDynamicEntityByEntityName(bankId: Option[String], entityName : String, callContext: Option[CallContext]): OBPReturnType[Box[DynamicEntityT]] = {
       validateBankId(bankId, callContext)
       Future {
-        val boxedDynamicEntity = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(entityName)
+        val boxedDynamicEntity = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(bankId, entityName)
         (boxedDynamicEntity, callContext)
       }
     }
@@ -3089,7 +3165,7 @@ object NewStyle extends MdcLoggable{
       import DynamicEntityOperation._
       validateBankId(bankId, callContext)
 
-      val dynamicEntityBox = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(entityName)
+      val dynamicEntityBox = DynamicEntityProvider.connectorMethodProvider.vend.getByEntityName(bankId, entityName)
       // do validate, any validate process fail will return immediately
       if(dynamicEntityBox.isEmpty) {
         return Helper.booleanToFuture(s"$DynamicEntityNotExists entity's name is '$entityName'", cc=callContext)(false)
@@ -3710,5 +3786,36 @@ object NewStyle extends MdcLoggable{
         i => (connectorEmptyResponse(i._1, callContext), i._2)
       }
     }
+    
+    def createCustomerAccountLink(customerId: String, accountId: String, relationshipType: String, callContext: Option[CallContext]): OBPReturnType[CustomerAccountLinkTrait] =
+      Connector.connector.vend.createCustomerAccountLink(customerId: String, accountId: String, relationshipType: String, callContext: Option[CallContext]) map {
+        i => (unboxFullOrFail(i._1, callContext, CreateCustomerAccountLinkError), i._2)
+      }
+    
+    def getCustomerAccountLinksByCustomerId(customerId: String, callContext: Option[CallContext]): OBPReturnType[List[CustomerAccountLinkTrait]] =
+      Connector.connector.vend.getCustomerAccountLinksByCustomerId(customerId: String, callContext: Option[CallContext]) map {
+        i => (unboxFullOrFail(i._1, callContext, GetCustomerAccountLinksError), i._2)
+      }
+    
+    def getCustomerAccountLinksByAccountId(accountId: String, callContext: Option[CallContext]): OBPReturnType[List[CustomerAccountLinkTrait]] =
+      Connector.connector.vend.getCustomerAccountLinksByAccountId(accountId: String, callContext: Option[CallContext]) map {
+        i => (unboxFullOrFail(i._1, callContext, GetCustomerAccountLinksError), i._2)
+      }
+    
+    def getCustomerAccountLinkById(customerAccountLinkId: String, callContext: Option[CallContext]): OBPReturnType[CustomerAccountLinkTrait] =
+      Connector.connector.vend.getCustomerAccountLinkById(customerAccountLinkId: String, callContext: Option[CallContext]) map {
+        i => (unboxFullOrFail(i._1, callContext, CustomerAccountLinkNotFoundById), i._2)
+      }
+    
+    def deleteCustomerAccountLinkById(customerAccountLinkId: String, callContext: Option[CallContext]): OBPReturnType[Boolean] =
+      Connector.connector.vend.deleteCustomerAccountLinkById(customerAccountLinkId: String, callContext: Option[CallContext]) map {
+        i => (unboxFullOrFail(i._1, callContext, DeleteCustomerAccountLinkError), i._2)
+      }
+    
+    def updateCustomerAccountLinkById(customerAccountLinkId: String, relationshipType: String, callContext: Option[CallContext]): OBPReturnType[CustomerAccountLinkTrait] =
+      Connector.connector.vend.updateCustomerAccountLinkById(customerAccountLinkId: String, relationshipType: String, callContext: Option[CallContext]) map {
+        i => (unboxFullOrFail(i._1, callContext, UpdateCustomerAccountLinkError), i._2)
+      }
   }
+
 }

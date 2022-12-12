@@ -27,11 +27,17 @@ package code.api.v3_1_0
 
 import com.openbankproject.commons.util.ApiVersion
 import code.api.v3_0_0.AdapterInfoJsonV300
+import code.api.util.APIUtil.OAuth._
+import code.api.util.ApiRole.{CanCreateAccountAttributeAtOneBank, canGetAdapterInfo}
+import code.api.util.ErrorMessages.{UserHasMissingRoles, UserNotLoggedIn}
+import code.setup.{APIResponse, DefaultUsers}
 import code.api.v3_1_0.OBPAPI3_1_0.Implementations3_1_0
+import code.entitlement.Entitlement
 import com.github.dwickern.macros.NameOf.nameOf
+import com.openbankproject.commons.model.ErrorMessage
 import org.scalatest.Tag
 
-class GetAdapterInfoTest extends V310ServerSetup {
+class GetAdapterInfoTest extends V310ServerSetup with DefaultUsers {
 
   /**
     * Test tags
@@ -45,14 +51,34 @@ class GetAdapterInfoTest extends V310ServerSetup {
 
   feature("Get Adapter Info v3.1.0")
   {
-    scenario("We will try to get adapter info", ApiEndpoint, VersionOfApi) {
+    scenario(s"$UserNotLoggedIn error case", ApiEndpoint, VersionOfApi) {
       When("We make a request v3.1.0")
       val request310 = (v3_1_0_Request / "adapter").GET
       val response310 = makeGetRequest(request310)
+      Then("We should get a 401")
+      response310.code should equal(401)
+      And("error should be " + UserNotLoggedIn)
+      response310.body.extract[ErrorMessage].message should equal (UserNotLoggedIn)
+    }
+    scenario(s"$UserHasMissingRoles error case", ApiEndpoint, VersionOfApi) {
+      When("We make a request v3.1.0")
+      val request310 = (v3_1_0_Request / "adapter").GET <@ (user1)
+      val response310 = makeGetRequest(request310)
+      Then("We should get a 403")
+      response310.code should equal(403)
+      And("error should be " + UserHasMissingRoles + canGetAdapterInfo)
+      response310.body.extract[ErrorMessage].message should equal (UserHasMissingRoles + canGetAdapterInfo)
+    }
+    scenario("We will try to get adapter info", ApiEndpoint, VersionOfApi) {
+      Entitlement.entitlement.vend.addEntitlement("", resourceUser1.userId, canGetAdapterInfo.toString)
+      When("We make a request v3.1.0")
+      val request310 = (v3_1_0_Request / "adapter").GET <@ (user1)
+      val response310 = makeGetRequest(request310)
+      Then("We should get a 200")
+      response310.code should equal(200)
       Then("We should get a 200")
       response310.code should equal(200)
       response310.body.extract[AdapterInfoJsonV300].name should equal("LocalMappedConnector")
-      
     }
   }
 
