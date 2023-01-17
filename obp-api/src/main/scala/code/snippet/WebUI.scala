@@ -66,6 +66,7 @@ class WebUI extends MdcLoggable{
   }
 
   def currentPage = {
+    logger.debug("currentPage")
     def replaceLocale(replacement: String) = {
       S.queryString.isDefined match {
         case true =>
