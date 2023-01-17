@@ -87,7 +87,7 @@ case class OutBoundGetBank(outboundAdapterCallContext: OutboundAdapterCallContex
 case class InBoundGetBank(inboundAdapterCallContext: InboundAdapterCallContext, status: Status, data: BankCommons) extends InBoundTrait[BankCommons]
 
 case class OutBoundGetBankAccountsForUser(outboundAdapterCallContext: OutboundAdapterCallContext,
-                                          username: String) extends TopicTrait
+  provider: String, username: String) extends TopicTrait
 case class InBoundGetBankAccountsForUser(inboundAdapterCallContext: InboundAdapterCallContext, status: Status, data: List[InboundAccountCommons]) extends InBoundTrait[List[InboundAccountCommons]]
 
 
@@ -868,7 +868,7 @@ case class InBoundGetBanksLegacy (inboundAdapterCallContext: InboundAdapterCallC
 
 
 case class OutBoundGetBankAccountsForUserLegacy (outboundAdapterCallContext: OutboundAdapterCallContext,
-                                                 username: String) extends TopicTrait
+                                                 provider: String, username:String ) extends TopicTrait
 case class InBoundGetBankAccountsForUserLegacy (inboundAdapterCallContext: InboundAdapterCallContext, status: Status, data: List[InboundAccountCommons]) extends InBoundTrait[List[InboundAccountCommons]]
 
 
@@ -986,7 +986,9 @@ case class OutBoundDynamicEntityProcess (outboundAdapterCallContext: OutboundAda
                                          requestBody: Option[JObject],
                                          entityId: Option[String],
                                          bankId: Option[String],
-                                         queryParameters: Option[Map[String, List[String]]]) extends TopicTrait
+                                         queryParameters: Option[Map[String, List[String]]],
+                                         userId: Option[String],
+                                         isPersonalEntity: Boolean)extends TopicTrait
 case class InBoundDynamicEntityProcess (inboundAdapterCallContext: InboundAdapterCallContext, status: Status, data: JValue) extends InBoundTrait[JValue]
 
 // because swagger generate not support JValue type, so here supply too xxxDoc TO generate correct request and response body example

@@ -1,5 +1,6 @@
 package code.api.util
 
+import code.api.Constant.PARAM_LOCALE
 import code.api.util.APIUtil.{getOAuth2ServerUrl, getObpApiRoot, getServerUrl}
 import code.api.util.ExampleValue.{accountIdExample, bankIdExample, customerIdExample, userIdExample}
 import code.util.Helper.MdcLoggable
@@ -831,9 +832,7 @@ object Glossary extends MdcLoggable  {
 					|```
 					|{
 					|  "everything": false,
-					|  "account_access": [
-					|
-					|  ],
+					|  "account_access": [],
 					|  "entitlements": [
 					|    {
 					|      "bank_id": "gh.29.uk.x",
@@ -2128,7 +2127,7 @@ object Glossary extends MdcLoggable  {
 |		"picture": "https://lh5.googleusercontent.com/-Xd44hnJ6TDo/AAAAAAAAAAI/AAAAAAAAAAA/AKxrwcadwzhm4N4tWk5E8Avxi-ZK6ks4qg/s96-c/photo.jpg",
 |		"given_name": "Marko",
 |		"family_name": "Milić",
-|		"locale": "en",
+|		$PARAM_LOCALE: "en",
 |		"iat": 1547705691,
 |		"exp": 1547709291
 |		}

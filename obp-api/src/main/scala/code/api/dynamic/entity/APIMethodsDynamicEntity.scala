@@ -1,10 +1,12 @@
 package code.api.dynamic.entity
 
 import code.DynamicData.{DynamicData, DynamicDataProvider}
-import code.api.dynamic.endpoint.helper.{DynamicEndpointHelper, DynamicEntityHelper, DynamicEntityInfo, EntityName, MockResponseHolder}
+import code.api.Constant.PARAM_LOCALE
+import code.api.dynamic.endpoint.helper.{DynamicEndpointHelper, MockResponseHolder}
 import code.api.dynamic.endpoint.helper.DynamicEndpointHelper.DynamicReq
 import code.api.dynamic.endpoint.helper.MockResponseHolder
-import code.api.util.APIUtil.{fullBoxOrException, _}
+import code.api.dynamic.entity.helper.{DynamicEntityHelper, DynamicEntityInfo, EntityName}
+import code.api.util.APIUtil._
 import code.api.util.ErrorMessages._
 import code.api.util.NewStyle.HttpCode
 import code.api.util._
@@ -64,7 +66,7 @@ trait APIMethodsDynamicEntity {
         case map if map.isEmpty => resultList
         case params =>
           val filteredWithFieldValue = resultList.arr.filter { jValue =>
-            params.forall { kv =>
+            params.filter(_._1!=PARAM_LOCALE).forall { kv =>
               val (path, values) = kv
               values.exists(JsonUtils.isFieldEquals(jValue, path, _))
             }
@@ -75,13 +77,25 @@ trait APIMethodsDynamicEntity {
     }
 
     lazy val genericEndpoint: OBPEndpoint = {
-      case EntityName(bankId, entityName, id) JsonGet req => { cc =>
+      case EntityName(bankId, entityName, id, isPersonalEntity) JsonGet req => { cc =>
         val listName = StringHelpers.snakify(entityName).replaceFirst("[-_]*$", "_list")
         val singleName = StringHelpers.snakify(entityName).replaceFirst("[-_]*$", "")
         val isGetAll = StringUtils.isBlank(id)
 
+        // e.g: "someMultiple-part_Name" -> ["Some", "Multiple", "Part", "Name"]
+        val capitalizedNameParts = entityName.split("(?<=[a-z0-9])(?=[A-Z])|-|_").map(_.capitalize).filterNot(_.trim.isEmpty)
+        val splitName = s"""${capitalizedNameParts.mkString(" ")}"""
+        val splitNameWithBankId = if (bankId.isDefined)
+          s"""$splitName(${bankId.getOrElse("")})"""
+        else
+          s"""$splitName"""
+        val mySplitNameWithBankId = s"My$splitNameWithBankId"
+
         val operation: DynamicEntityOperation = if (StringUtils.isBlank(id)) GET_ALL else GET_ONE
-        val resourceDoc = DynamicEntityHelper.operationToResourceDoc.get(operation -> entityName)
+        val resourceDoc = if(isPersonalEntity) 
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> mySplitNameWithBankId) 
+        else 
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> splitNameWithBankId)
         val operationId = resourceDoc.map(_.operationId).orNull
         val callContext = cc.copy(operationId = Some(operationId), resourceDocument = resourceDoc)
         // process before authentication interceptor, get intercept result
@@ -99,7 +113,11 @@ trait APIMethodsDynamicEntity {
               }
             }
 
-          _ <- NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canGetRole(entityName, bankId), callContext)
+          _ <- if (isPersonalEntity) {
+            Future.successful(true)
+          } else {
+            NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canGetRole(entityName, bankId), callContext)
+          }
 
           // process after authentication interceptor, get intercept result
           jsonResponse: Box[ErrorMessage] = afterAuthenticateInterceptResult(callContext, operationId).collect({
@@ -109,7 +127,11 @@ trait APIMethodsDynamicEntity {
             jsonResponse.isEmpty
           }
 
-          (box, _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, None, Option(id).filter(StringUtils.isNotBlank), bankId, None, Some(cc))
+          (box, _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, None, Option(id).filter(StringUtils.isNotBlank), bankId, None, 
+            Some(u.userId),
+            isPersonalEntity,
+            Some(cc)
+          )
 
           _ <- Helper.booleanToFuture(EntityNotFoundByEntityId, 404, cc = callContext) {
             box.isDefined
@@ -139,8 +161,7 @@ trait APIMethodsDynamicEntity {
           (jValue, HttpCode.`200`(Some(cc)))
         }
       }
-
-      case EntityName(bankId, entityName, _) JsonPost json -> _ => { cc =>
+      case EntityName(bankId, entityName, _, isPersonalEntity) JsonPost json -> _ => { cc =>
         val singleName = StringHelpers.snakify(entityName).replaceFirst("[-_]*$", "")
         val operation: DynamicEntityOperation = CREATE
         // e.g: "someMultiple-part_Name" -> ["Some", "Multiple", "Part", "Name"]
@@ -150,7 +171,13 @@ trait APIMethodsDynamicEntity {
           s"""$splitName(${bankId.getOrElse("")})"""
         else
           s"""$splitName"""
-        val resourceDoc = DynamicEntityHelper.operationToResourceDoc.get(operation -> splitNameWithBankId)
+        val mySplitNameWithBankId = s"My$splitNameWithBankId"
+        
+        val resourceDoc = if(isPersonalEntity) 
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> mySplitNameWithBankId)
+        else
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> splitNameWithBankId)
+          
         val operationId = resourceDoc.map(_.operationId).orNull
         val callContext = cc.copy(operationId = Some(operationId), resourceDocument = resourceDoc)
 
@@ -167,7 +194,12 @@ trait APIMethodsDynamicEntity {
                 ("", callContext)
               }
             }
-          _ <- NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canCreateRole(entityName, bankId), callContext)
+
+          _ <- if (isPersonalEntity) {
+            Future.successful(true)
+          } else {
+            NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canCreateRole(entityName, bankId), callContext)
+          }
 
           // process after authentication interceptor, get intercept result
           jsonResponse: Box[ErrorMessage] = afterAuthenticateInterceptResult(callContext, operationId).collect({
@@ -177,7 +209,7 @@ trait APIMethodsDynamicEntity {
             jsonResponse.isEmpty
           }
 
-          (box, _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, Some(json.asInstanceOf[JObject]), None, bankId, None, Some(cc))
+          (box, _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, Some(json.asInstanceOf[JObject]), None, bankId, None, Some(u.userId),  isPersonalEntity, Some(cc))
           singleObject: JValue = unboxResult(box.asInstanceOf[Box[JValue]], entityName)
         } yield {
           val result: JObject = (singleName -> singleObject)
@@ -190,7 +222,7 @@ trait APIMethodsDynamicEntity {
           (entity, HttpCode.`201`(Some(cc)))
         }
       }
-      case EntityName(bankId, entityName, id) JsonPut json -> _ => { cc =>
+      case EntityName(bankId, entityName, id, isPersonalEntity) JsonPut json -> _ => { cc =>
         val singleName = StringHelpers.snakify(entityName).replaceFirst("[-_]*$", "")
         val operation: DynamicEntityOperation = UPDATE
         // e.g: "someMultiple-part_Name" -> ["Some", "Multiple", "Part", "Name"]
@@ -200,7 +232,13 @@ trait APIMethodsDynamicEntity {
           s"""$splitName(${bankId.getOrElse("")})"""
         else
           s"""$splitName"""
-        val resourceDoc = DynamicEntityHelper.operationToResourceDoc.get(operation -> splitNameWithBankId)
+        val mySplitNameWithBankId = s"My$splitNameWithBankId"
+
+        val resourceDoc = if(isPersonalEntity)
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> mySplitNameWithBankId)
+        else
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> splitNameWithBankId)
+          
         val operationId = resourceDoc.map(_.operationId).orNull
         val callContext = cc.copy(operationId = Some(operationId), resourceDocument = resourceDoc)
 
@@ -217,7 +255,11 @@ trait APIMethodsDynamicEntity {
                 ("", callContext)
               }
             }
-          _ <- NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canUpdateRole(entityName, bankId), callContext)
+          _ <- if (isPersonalEntity) {
+            Future.successful(true)
+          } else {
+            NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canUpdateRole(entityName, bankId), callContext)
+          }
 
           // process after authentication interceptor, get intercept result
           jsonResponse: Box[ErrorMessage] = afterAuthenticateInterceptResult(callContext, operationId).collect({
@@ -227,11 +269,17 @@ trait APIMethodsDynamicEntity {
             jsonResponse.isEmpty
           }
 
-          (box, _) <- NewStyle.function.invokeDynamicConnector(GET_ONE, entityName, None, Some(id), bankId, None, Some(cc))
+          (box, _) <- NewStyle.function.invokeDynamicConnector(GET_ONE, entityName, None, Some(id), bankId, None,
+            Some(u.userId),
+            isPersonalEntity,
+            Some(cc))
           _ <- Helper.booleanToFuture(EntityNotFoundByEntityId, 404, cc = callContext) {
             box.isDefined
           }
-          (box: Box[JValue], _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, Some(json.asInstanceOf[JObject]), Some(id), bankId, None, Some(cc))
+          (box: Box[JValue], _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, Some(json.asInstanceOf[JObject]), Some(id), bankId, None,
+            Some(u.userId),
+            isPersonalEntity,
+            Some(cc))
           singleObject: JValue = unboxResult(box.asInstanceOf[Box[JValue]], entityName)
         } yield {
           val result: JObject = (singleName -> singleObject)
@@ -244,7 +292,7 @@ trait APIMethodsDynamicEntity {
           (entity, HttpCode.`200`(Some(cc)))
         }
       }
-      case EntityName(bankId, entityName, id) JsonDelete _ => { cc =>
+      case EntityName(bankId, entityName, id, isPersonalEntity) JsonDelete _ => { cc =>
         val operation: DynamicEntityOperation = DELETE
         // e.g: "someMultiple-part_Name" -> ["Some", "Multiple", "Part", "Name"]
         val capitalizedNameParts = entityName.split("(?<=[a-z0-9])(?=[A-Z])|-|_").map(_.capitalize).filterNot(_.trim.isEmpty)
@@ -253,7 +301,13 @@ trait APIMethodsDynamicEntity {
           s"""$splitName(${bankId.getOrElse("")})"""
         else
           s"""$splitName"""
-        val resourceDoc = DynamicEntityHelper.operationToResourceDoc.get(operation -> splitNameWithBankId)
+        val mySplitNameWithBankId = s"My$splitNameWithBankId"
+
+        val resourceDoc = if(isPersonalEntity)
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> mySplitNameWithBankId)
+        else
+          DynamicEntityHelper.operationToResourceDoc.get(operation -> splitNameWithBankId)
+          
         val operationId = resourceDoc.map(_.operationId).orNull
         val callContext = cc.copy(operationId = Some(operationId), resourceDocument = resourceDoc)
 
@@ -270,7 +324,12 @@ trait APIMethodsDynamicEntity {
                 ("", callContext)
               }
             }
-          _ <- NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canDeleteRole(entityName, bankId), callContext)
+
+          _ <- if (isPersonalEntity) {
+            Future.successful(true)
+          } else {
+            NewStyle.function.hasEntitlement(bankId.getOrElse(""), u.userId, DynamicEntityInfo.canDeleteRole(entityName, bankId), callContext)
+          }
 
           // process after authentication interceptor, get intercept result
           jsonResponse: Box[ErrorMessage] = afterAuthenticateInterceptResult(callContext, operationId).collect({
@@ -280,14 +339,22 @@ trait APIMethodsDynamicEntity {
             jsonResponse.isEmpty
           }
 
-          (box, _) <- NewStyle.function.invokeDynamicConnector(GET_ONE, entityName, None, Some(id), bankId, None, Some(cc))
+          (box, _) <- NewStyle.function.invokeDynamicConnector(GET_ONE, entityName, None, Some(id), bankId, None,
+            Some(u.userId),
+            isPersonalEntity,
+            Some(cc)
+          )
           _ <- Helper.booleanToFuture(EntityNotFoundByEntityId, 404, cc = callContext) {
             box.isDefined
           }
-          (box, _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, None, Some(id), bankId, None, Some(cc))
+          (box, _) <- NewStyle.function.invokeDynamicConnector(operation, entityName, None, Some(id), bankId, None,
+            Some(u.userId),
+            isPersonalEntity,
+            Some(cc)
+          )
           deleteResult: JBool = unboxResult(box.asInstanceOf[Box[JBool]], entityName)
         } yield {
-          (deleteResult, HttpCode.`204`(Some(cc)))
+          (deleteResult, HttpCode.`200`(Some(cc)))
         }
       }
     }

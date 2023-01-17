@@ -158,6 +158,9 @@ trait APIMethods500 {
             _ <- Helper.booleanToFuture(failMsg = s"$InvalidJsonFormat BANK_ID can not contain space characters", cc=cc.callContext) {
               !bank.id.contains(" ")
             }
+            _ <- Helper.booleanToFuture(failMsg = s"$InvalidJsonFormat BANK_ID can not contain `::::` characters", cc=cc.callContext) {
+              !`checkIfContains::::`(bank.id.getOrElse(""))
+            }
             (banks, callContext) <- NewStyle.function.getBanks(cc.callContext)
             _ <- Helper.booleanToFuture(failMsg = ErrorMessages.bankIdAlreadyExists, cc=cc.callContext) {
               !banks.exists { b => Some(b.bankId.value) == bank.id }
@@ -744,7 +747,7 @@ trait APIMethods500 {
       "Create Consent By CONSENT_REQUEST_ID (EMAIL)",
       s"""
          |
-         |This endpoint finishes the process of creating a Consent by CONSENT_REQUEST_ID.
+         |This endpoint continues the process of creating a Consent. It starts the SCA flow which changes the status of the consent from INITIATED to ACCEPTED or REJECTED.
          |Please note that the Consent cannot elevate the privileges logged in user already have.
          |
          |""",
@@ -772,7 +775,7 @@ trait APIMethods500 {
       "Create Consent By CONSENT_REQUEST_ID (SMS)",
       s"""
          |
-         |This endpoint finishes the process of creating a Consent.
+         |This endpoint continues the process of creating a Consent. It starts the SCA flow which changes the status of the consent from INITIATED to ACCEPTED or REJECTED.
          |Please note that the Consent cannot elevate the privileges logged in user already have. 
          |
          |""",
@@ -858,7 +861,10 @@ trait APIMethods500 {
                 }
                 )
             }
-            (consumerId, applicationText) <- consentRequestJson.consumer_id match {
+            // Use consumer specified at the payload of consent request in preference to the field ConsumerId of consent request
+            // i.e. ConsentRequest.Payload.consumer_id in preference to ConsentRequest.ConsumerId
+            calculatedConsumerId = consentRequestJson.consumer_id.orElse(Some(createdConsentRequest.consumerId))
+            (consumerId, applicationText) <- calculatedConsumerId match {
               case Some(id) => NewStyle.function.checkConsumerByConsumerId(id, callContext) map {
                 c => (Some(c.consumerId.get), c.description)
               }
@@ -1009,6 +1015,10 @@ trait APIMethods500 {
               postedData.dependants.getOrElse(0) == postedData.dob_of_dependants.getOrElse(Nil).length
             }
             customerNumber = postedData.customer_number.getOrElse(Random.nextInt(Integer.MAX_VALUE).toString)
+
+            _ <- Helper.booleanToFuture(failMsg = s"$InvalidJsonFormat customer_number can not contain `::::` characters", cc=cc.callContext) {
+              !`checkIfContains::::` (customerNumber)
+            }
             (_, callContext) <- NewStyle.function.checkCustomerNumberAvailable(bankId, customerNumber, cc.callContext)
             (customer, callContext) <- NewStyle.function.createCustomerC2(
               bankId,
@@ -1862,7 +1872,7 @@ trait APIMethods500 {
             _ <- booleanToFuture(AccountAlreadyExistsForCustomer, 400, callContext) {
               customerAccountLinkExists.isEmpty
             }
-            (customerAccountLink, callContext) <- NewStyle.function.createCustomerAccountLink(postedData.customer_id, postedData.account_id, postedData.relationship_type, callContext)
+            (customerAccountLink, callContext) <- NewStyle.function.createCustomerAccountLink(postedData.customer_id, postedData.bank_id, postedData.account_id, postedData.relationship_type, callContext)
           } yield {
             (JSONFactory500.createCustomerAccountLinkJson(customerAccountLink), HttpCode.`201`(callContext))
           }
@@ -1908,9 +1918,9 @@ trait APIMethods500 {
     }
 
     staticResourceDocs += ResourceDoc(
-      getCustomerAccountLinksByAccountId,
+      getCustomerAccountLinksByBankIdAccountId,
       implementedInApiVersion,
-      nameOf(getCustomerAccountLinksByAccountId),
+      nameOf(getCustomerAccountLinksByBankIdAccountId),
       "GET",
       "/banks/BANK_ID/accounts/ACCOUNT_ID/customer-account-links",
       "Get Customer Account Links by ACCOUNT_ID",
@@ -1930,12 +1940,12 @@ trait APIMethods500 {
       ),
       List(apiTagCustomer, apiTagNewStyle),
       Some(List(canGetCustomerAccountLinks)))
-    lazy val getCustomerAccountLinksByAccountId : OBPEndpoint = {
-      case "banks" :: BankId(bankId) :: "accounts" :: accountId :: "customer-account-links" :: Nil JsonGet _ => {
+    lazy val getCustomerAccountLinksByBankIdAccountId : OBPEndpoint = {
+      case "banks" :: bankId :: "accounts" :: accountId :: "customer-account-links" :: Nil JsonGet _ => {
         cc =>
           for {
             (_, _,callContext) <- SS.userBank
-            (customerAccountLinks, callContext) <-  NewStyle.function.getCustomerAccountLinksByAccountId(accountId, callContext)
+            (customerAccountLinks, callContext) <-  NewStyle.function.getCustomerAccountLinksByBankIdAccountId(bankId, accountId, callContext)
           } yield {
             (JSONFactory500.createCustomerAccountLinksJon(customerAccountLinks), HttpCode.`200`(callContext))
           }

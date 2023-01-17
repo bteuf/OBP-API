@@ -63,9 +63,10 @@ import code.validation.{JsonSchemaValidationProvider, JsonValidation}
 import net.liftweb.http.JsonResponse
 import net.liftweb.util.Props
 import code.api.JsonResponseException
-import code.api.dynamic.endpoint.helper.{DynamicEndpointHelper, DynamicEntityHelper, DynamicEntityInfo}
+import code.api.dynamic.endpoint.helper.DynamicEndpointHelper
 import code.api.v4_0_0.JSONFactory400
 import code.api.dynamic.endpoint.helper.DynamicEndpointHelper
+import code.api.dynamic.entity.helper.{DynamicEntityHelper, DynamicEntityInfo}
 import code.bankattribute.BankAttribute
 import code.connectormethod.{ConnectorMethodProvider, JsonConnectorMethod}
 import code.customeraccountlinks.CustomerAccountLinkTrait
@@ -3104,7 +3105,7 @@ object NewStyle extends MdcLoggable{
       else APIUtil.getPropsValue(s"dynamicEntity.cache.ttl.seconds", "30").toInt
     }
 
-    def getDynamicEntities(bankId: Option[String]): List[DynamicEntityT] = {
+    def getDynamicEntities(bankId: Option[String], returnBothBankAndSystemLevel: Boolean): List[DynamicEntityT] = {
       import scala.concurrent.duration._
 
       validateBankId(bankId, None)
@@ -3112,7 +3113,7 @@ object NewStyle extends MdcLoggable{
       var cacheKey = (randomUUID().toString, randomUUID().toString, randomUUID().toString)
       CacheKeyFromArguments.buildCacheKey {
         Caching.memoizeSyncWithProvider(Some(cacheKey.toString()))(dynamicEntityTTL second) {
-          DynamicEntityProvider.connectorMethodProvider.vend.getDynamicEntities(bankId)
+          DynamicEntityProvider.connectorMethodProvider.vend.getDynamicEntities(bankId, returnBothBankAndSystemLevel)
         }
       }
     }
@@ -3161,6 +3162,8 @@ object NewStyle extends MdcLoggable{
                                entityId: Option[String],
                                bankId: Option[String],
                                queryParameters: Option[Map[String, List[String]]],
+                               userId: Option[String],
+                               isPersonalEntity: Boolean,
                                callContext: Option[CallContext]): OBPReturnType[Box[JValue]] = {
       import DynamicEntityOperation._
       validateBankId(bankId, callContext)
@@ -3213,7 +3216,7 @@ object NewStyle extends MdcLoggable{
           // @(variable-binding pattern), we can use the empty variable 
           // If there is not instance in requestBody, we just call the `dynamicEntityProcess` directly.
         case empty @None => 
-          Connector.connector.vend.dynamicEntityProcess(operation, entityName, empty, entityId, bankId, queryParameters, callContext)
+          Connector.connector.vend.dynamicEntityProcess(operation, entityName, empty, entityId, bankId, queryParameters, userId, isPersonalEntity, callContext)
         // @(variable-binding pattern), we can use both v and body variables.
         case requestBody @Some(body) =>
           // If the request body is existing, we need to validate the body first. 
@@ -3221,7 +3224,7 @@ object NewStyle extends MdcLoggable{
           dynamicEntity.validateEntityJson(body, callContext).flatMap {
             // If there is no error in the request body
             case None => 
-              Connector.connector.vend.dynamicEntityProcess(operation, entityName, requestBody, entityId, bankId, queryParameters, callContext)
+              Connector.connector.vend.dynamicEntityProcess(operation, entityName, requestBody, entityId, bankId, queryParameters, userId,  isPersonalEntity, callContext)
             // If there are errors, we need to show them to end user. 
             case Some(errorMsg) => 
               Helper.booleanToFuture(s"$DynamicEntityInstanceValidateFail details: $errorMsg", cc=callContext)(false)
@@ -3492,6 +3495,10 @@ object NewStyle extends MdcLoggable{
       Future(MappedApiCollectionsProvider.getApiCollectionsByUserId(userId), callContext) 
     }
 
+    def getAllApiCollections(callContext: Option[CallContext]) : OBPReturnType[List[ApiCollectionTrait]] = {
+      Future(MappedApiCollectionsProvider.getAllApiCollections(), callContext) 
+    }
+
     def getFeaturedApiCollections(callContext: Option[CallContext]) : OBPReturnType[List[ApiCollectionTrait]] = {
       //we get the getFeaturedApiCollectionIds from props, and remove the deplication there.
       val featuredApiCollectionIds =  APIUtil.getPropsValue("featured_api_collection_ids","").split(",").map(_.trim).toSet.toList
@@ -3514,6 +3521,22 @@ object NewStyle extends MdcLoggable{
         description: String)
       ) map {
         i => (unboxFullOrFail(i, callContext, CreateApiCollectionError), callContext)
+      }
+    }    
+    
+    def updateApiCollection(apiCollectionId : String, 
+                            apiCollectionName: String, 
+                            isSharable: Boolean, 
+                            description: String, 
+                            callContext: Option[CallContext]
+    ) : OBPReturnType[ApiCollectionTrait] = {
+      Future(MappedApiCollectionsProvider.updateApiCollectionById(
+        apiCollectionId: String,
+        apiCollectionName: String,
+        description: String,
+        isSharable: Boolean)
+      ) map {
+        i => (unboxFullOrFail(i, callContext, UpdateApiCollectionError), callContext)
       }
     }
 
@@ -3787,8 +3810,8 @@ object NewStyle extends MdcLoggable{
       }
     }
     
-    def createCustomerAccountLink(customerId: String, accountId: String, relationshipType: String, callContext: Option[CallContext]): OBPReturnType[CustomerAccountLinkTrait] =
-      Connector.connector.vend.createCustomerAccountLink(customerId: String, accountId: String, relationshipType: String, callContext: Option[CallContext]) map {
+    def createCustomerAccountLink(customerId: String, bankId: String, accountId: String, relationshipType: String, callContext: Option[CallContext]): OBPReturnType[CustomerAccountLinkTrait] =
+      Connector.connector.vend.createCustomerAccountLink(customerId: String, bankId, accountId: String, relationshipType: String, callContext: Option[CallContext]) map {
         i => (unboxFullOrFail(i._1, callContext, CreateCustomerAccountLinkError), i._2)
       }
     
@@ -3797,8 +3820,8 @@ object NewStyle extends MdcLoggable{
         i => (unboxFullOrFail(i._1, callContext, GetCustomerAccountLinksError), i._2)
       }
     
-    def getCustomerAccountLinksByAccountId(accountId: String, callContext: Option[CallContext]): OBPReturnType[List[CustomerAccountLinkTrait]] =
-      Connector.connector.vend.getCustomerAccountLinksByAccountId(accountId: String, callContext: Option[CallContext]) map {
+    def getCustomerAccountLinksByBankIdAccountId(bankId: String, accountId: String, callContext: Option[CallContext]): OBPReturnType[List[CustomerAccountLinkTrait]] =
+      Connector.connector.vend.getCustomerAccountLinksByBankIdAccountId(bankId, accountId: String, callContext: Option[CallContext]) map {
         i => (unboxFullOrFail(i._1, callContext, GetCustomerAccountLinksError), i._2)
       }
     

@@ -43,7 +43,7 @@ import code.api.UKOpenBanking.v3_1_0.OBP_UKOpenBanking_310
 import code.api.berlin.group.v1.OBP_BERLIN_GROUP_1
 import code.api.builder.OBP_APIBuilder
 import code.api.dynamic.endpoint.OBPAPIDynamicEndpoint
-import code.api.dynamic.endpoint.helper.{DynamicEndpointHelper, DynamicEndpoints, DynamicEntityHelper}
+import code.api.dynamic.endpoint.helper.{DynamicEndpointHelper, DynamicEndpoints}
 import code.api.oauth1a.Arithmetics
 import code.api.oauth1a.OauthParams._
 import code.api.util.APIUtil.ResourceDoc.{findPathVariableNames, isPathVariable}
@@ -55,6 +55,8 @@ import code.api.v1_2.ErrorMessage
 import code.api.v2_0_0.CreateEntitlementJSON
 import code.api.dynamic.endpoint.helper.DynamicEndpointHelper
 import code.api.dynamic.entity.OBPAPIDynamicEntity
+import code.api._
+import code.api.dynamic.entity.helper.DynamicEntityHelper
 import code.api.v5_0_0.OBPAPI5_0_0
 import code.api.{DirectLogin, _}
 import code.authtypevalidation.AuthenticationTypeValidationProvider
@@ -77,7 +79,7 @@ import com.github.dwickern.macros.NameOf.{nameOf, nameOfType}
 import com.openbankproject.commons.ExecutionContext.Implicits.global
 import com.openbankproject.commons.model.enums.StrongCustomerAuthentication.SCA
 import com.openbankproject.commons.model.enums.{PemCertificateRole, StrongCustomerAuthentication}
-import com.openbankproject.commons.model.{Customer, _}
+import com.openbankproject.commons.model.{Customer, UserAuthContext, _}
 import com.openbankproject.commons.util.Functions.Implicits._
 import com.openbankproject.commons.util.Functions.Memo
 import com.openbankproject.commons.util._
@@ -85,7 +87,7 @@ import dispatch.url
 import javassist.expr.{ExprEditor, MethodCall}
 import javassist.{ClassPool, LoaderClassPath}
 import net.liftweb.actor.LAFuture
-import net.liftweb.common.{Empty, _}
+import net.liftweb.common._
 import net.liftweb.http._
 import net.liftweb.http.js.JE.JsRaw
 import net.liftweb.http.provider.HTTPParam
@@ -111,6 +113,7 @@ import javassist.expr.{ExprEditor, MethodCall}
 import org.apache.commons.io.IOUtils
 import org.apache.commons.lang3.StringUtils
 import java.security.AccessControlException
+import java.util.regex.Pattern
 
 import code.users.Users
 
@@ -2486,6 +2489,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         case ApiVersion.v3_1_0 => LiftRules.statelessDispatch.append(v3_1_0.OBPAPI3_1_0)
         case ApiVersion.v4_0_0 => LiftRules.statelessDispatch.append(v4_0_0.OBPAPI4_0_0)
         case ApiVersion.v5_0_0 => LiftRules.statelessDispatch.append(v5_0_0.OBPAPI5_0_0)
+        case ApiVersion.v5_1_0 => LiftRules.statelessDispatch.append(v5_1_0.OBPAPI5_1_0)
         case ApiVersion.`dynamic-endpoint` => LiftRules.statelessDispatch.append(OBPAPIDynamicEndpoint)
         case ApiVersion.`dynamic-entity` => LiftRules.statelessDispatch.append(OBPAPIDynamicEntity)
         case ApiVersion.`b1` => LiftRules.statelessDispatch.append(OBP_APIBuilder)
@@ -2757,7 +2761,18 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       if (APIUtil.`hasConsent-ID`(reqHeaders)) { // Berlin Group's Consent
         Consent.applyBerlinGroupRules(APIUtil.`getConsent-ID`(reqHeaders), cc)
       } else if (APIUtil.hasConsentJWT(reqHeaders)) { // Open Bank Project's Consent
-        Consent.applyRules(APIUtil.getConsentJWT(reqHeaders), cc)
+        val consentValue = APIUtil.getConsentJWT(reqHeaders)
+        Consent.getConsentJwtValueByConsentId(consentValue.getOrElse("")) match {
+          case Some(jwt) => // JWT value obtained via "Consent-Id" request header
+            Consent.applyRules(Some(jwt), cc)
+          case _ => 
+            JwtUtil.checkIfStringIsJWTValue(consentValue.getOrElse("")).isDefined match {
+              case true => // It's JWT obtained via "Consent-JWT" request header
+                Consent.applyRules(APIUtil.getConsentJWT(reqHeaders), cc)
+              case false => // Unrecognised consent value
+                Future { (Failure(ErrorMessages.ConsentHeaderValueInvalid), None) }
+            }
+        }
       } else if (hasAnOAuthHeader(cc.authReqHeaderField)) { // OAuth 1
         getUserFromOAuthHeaderFuture(cc)
       } else if (hasAnOAuth2Header(cc.authReqHeaderField)) { // OAuth 2
@@ -3473,6 +3488,20 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
    * @return UUID as a String value
    */
   def generateUUID(): String = UUID.randomUUID().toString
+
+  /**
+   * This function validates UUID (Universally Unique Identifier) strings 
+   * @param value a string we're trying to validate
+   * @return false in case the string doesn't represent a UUID, true in case the string represents a UUID
+   *         
+   *A Version 1 UUID is a universally unique identifier that is generated using 
+   * a timestamp and the MAC address of the computer on which it was generated.
+   */
+  def checkIfStringIsUUIDVersion1(value: String): Boolean = {
+    Pattern.compile("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+      .matcher(value).matches()
+  }
+  
 
   def mockedDataText(isMockedData: Boolean) =
     if (isMockedData)
@@ -4293,5 +4322,34 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   def allDynamicResourceDocs= (DynamicEntityHelper.doc ++ DynamicEndpointHelper.doc ++ DynamicEndpoints.dynamicResourceDocs).toList
   
   def getAllResourceDocs = allStaticResourceDocs ++ allDynamicResourceDocs
+
+  /**
+   * @param userAuthContexts
+   * {
+      "key": "BANK_ID::::CUSTOMER_NUMBER",
+      "value": "gh.29.uk::::1907911253"
+      }
+  
+      {
+        "key": "BANK_ID::::CUSTOMER_NUMBER",
+        "value": "gh.28.uk::::1907911252"
+      }
+   * @return
+   * 
+   * ==> Set(("gh.29.uk","1907911253"),("gh.28.uk","1907911252"))
+   */
+  def getBankIdAccountIdPairsFromUserAuthContexts(userAuthContexts: List[UserAuthContext]): Set[(String, String)] = userAuthContexts
+    .filter(_.key.trim.equalsIgnoreCase("BANK_ID::::CUSTOMER_NUMBER"))
+    .map(_.value)
+    .map(_.split("::::"))
+    .filter(_.length == 2)
+    .map(a =>(a.apply(0),a.apply(1))).toSet
+
+  /**
+   * We support the `::::` as the delimiter in UserAuthContext, so we need a guard for it.
+   * @param value
+   * @return
+   */
+  def `checkIfContains::::` (value: String) = value.contains("::::")
     
 }

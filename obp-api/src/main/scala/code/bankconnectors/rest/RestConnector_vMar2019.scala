@@ -630,7 +630,8 @@ trait RestConnector_vMar2019 extends Connector with KafkaHelper with MdcLoggable
     inboundTopic = None,
     exampleOutboundMessage = (
      OutBoundGetBankAccountsForUser(outboundAdapterCallContext=MessageDocsSwaggerDefinitions.outboundAdapterCallContext,
-      username=usernameExample.value)
+       provider=providerExample.value,
+       username=usernameExample.value)
     ),
     exampleInboundMessage = (
      InBoundGetBankAccountsForUser(inboundAdapterCallContext=MessageDocsSwaggerDefinitions.inboundAdapterCallContext,
@@ -654,9 +655,9 @@ trait RestConnector_vMar2019 extends Connector with KafkaHelper with MdcLoggable
     adapterImplementation = Some(AdapterImplementation("- Core", 1))
   )
 
-  override def getBankAccountsForUser(username: String, callContext: Option[CallContext]): Future[Box[(List[InboundAccount], Option[CallContext])]] = {
+  override def getBankAccountsForUser(provider: String, username:String, callContext: Option[CallContext]): Future[Box[(List[InboundAccount], Option[CallContext])]] = {
         import com.openbankproject.commons.dto.{InBoundGetBankAccountsForUser => InBound, OutBoundGetBankAccountsForUser => OutBound}  
-        val req = OutBound(callContext.map(_.toOutboundAdapterCallContext).orNull, username)
+        val req = OutBound(callContext.map(_.toOutboundAdapterCallContext).orNull, provider: String, username:String)
         val response: Future[Box[InBound]] = sendRequest[InBound](getUrl(callContext, "getBankAccountsForUser"), HttpMethods.POST, req, callContext)
         response.map(convertToTuple[List[InboundAccountCommons]](callContext))        
   }
@@ -6486,10 +6487,12 @@ trait RestConnector_vMar2019 extends Connector with KafkaHelper with MdcLoggable
                                     entityId: Option[String],
                                     bankId: Option[String],
                                     queryParameters: Option[Map[String, List[String]]],
+                                    userId: Option[String],
+                                    isPersonalEntity: Boolean,
                                     callContext: Option[CallContext]): OBPReturnType[Box[JValue]] = {
     import com.openbankproject.commons.dto.{OutBoundDynamicEntityProcess => OutBound, InBoundDynamicEntityProcess => InBound}
     val url = getUrl(callContext, "dynamicEntityProcess")
-    val req = OutBound(callContext.map(_.toOutboundAdapterCallContext).orNull , operation, entityName, requestBody, entityId, bankId, queryParameters)
+    val req = OutBound(callContext.map(_.toOutboundAdapterCallContext).orNull , operation, entityName, requestBody, entityId, bankId, queryParameters, userId, isPersonalEntity)
     val result: OBPReturnType[Box[JValue]] = sendRequest[InBound](url, HttpMethods.POST, req, callContext).map(convertToTuple(callContext))
     result
   }
