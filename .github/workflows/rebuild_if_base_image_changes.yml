@@ -29,5 +29,5 @@ jobs:
       # see also https://github.com/actions/runner/issues/662
 
       - name: rebuild image
-        uses: .github/workflows/build_package.yml
+        uses: tawoe/OBP-API/.github/workflows/build_package.yml@auto_rebuild
         if: steps.baseupdatecheck.outputs.needs-updating == 'true'
