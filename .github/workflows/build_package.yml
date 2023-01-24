@@ -1,6 +1,6 @@
 name: build and publish container
 
-on: [push]
+on: [workflow_call]
 env:
   ## Sets environment variable
   DOCKER_HUB_ORGANIZATION: openbankproject

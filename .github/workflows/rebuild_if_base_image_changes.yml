@@ -1,0 +1,33 @@
+
+name: Regular base image update check
+on:
+  schedule:
+    - cron: "*/5  * * * *"
+  workflow_dispatch:
+
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v3
+
+      - name: Docker Image Update Checker
+        id: baseupdatecheck
+        uses: lucacome/docker-image-update-checker@v1
+        with:
+          base-image: jetty:9.4.50-jre11-alpine
+          image: openbankproject/obp-api:latest # update for your image
+
+      # only execute subsequent steps if an update is actually NEEDED.
+      # unfortunately we need to add an if-condition to all steps now
+      # because a clean exit can't be triggered within a job it seems
+      # (a cancellation is NOT the same and triggers a failure email)
+      # see also https://github.com/actions/runner/issues/662
+
+      - name: rebuild image
+        uses: .github/workflows/build_package.yml
+        if: steps.baseupdatecheck.outputs.needs-updating == 'true'
