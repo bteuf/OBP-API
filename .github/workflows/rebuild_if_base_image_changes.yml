@@ -2,7 +2,7 @@
 name: Regular base image update check
 on:
   schedule:
-    - cron: "20 * * * *"
+    - cron: "*/5 * * * *"
 
 env:
   ## Sets environment variable
