@@ -13,6 +13,8 @@ jobs:
   cron:
     runs-on: ubuntu-latest
     steps:
+      - name: Run a one-line script
+        run: enter cron job!
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
