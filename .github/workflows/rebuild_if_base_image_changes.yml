@@ -6,7 +6,7 @@ on:
 env:
   ## Sets environment variable
   DOCKER_HUB_ORGANIZATION: tawoe
-  DOCKER_HUB_REPOSITORY: obp-api-rebuild
+  DOCKER_HUB_REPOSITORY: obp-api
 
 jobs:
 
