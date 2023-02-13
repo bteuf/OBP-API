@@ -6,11 +6,11 @@ on:
 env:
   ## Sets environment variable
   DOCKER_HUB_ORGANIZATION: tawoe
-  DOCKER_HUB_REPOSITORY: obp-api
+  DOCKER_HUB_REPOSITORY: obp-api-rebuild
 
 jobs:
 
-  build:
+  cron:
     runs-on: ubuntu-latest
     steps:
 
