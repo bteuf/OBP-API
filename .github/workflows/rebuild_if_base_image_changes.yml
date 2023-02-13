@@ -1,7 +1,7 @@
 name: Regular base image update check
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "* 7 * * *"
 
 env:
   ## Sets environment variable
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Run a one-line script
-        run: echo enter cronjob!
+        run: echo  enter cronjob!
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@v3
