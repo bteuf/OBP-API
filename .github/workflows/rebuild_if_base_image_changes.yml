@@ -21,7 +21,7 @@ jobs:
 
       - name: Docker Image Update Checker
         id: baseupdatecheck
-        uses: lucacome/docker-image-update-checker@v1
+        uses: lucacome/docker-image-update-checker@v1.2.1
         with:
           base-image: jetty:9.4.50-jre11-alpine
           image: openbankproject/obp-api:latest # update for your image
