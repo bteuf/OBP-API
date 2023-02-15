@@ -1,7 +1,7 @@
 name: Regular base image update check
 on:
   schedule:
-    - cron: "* 7 * * *"
+    - cron: "*/5 * * * *"
 
 env:
   ## Sets environment variable
@@ -24,7 +24,7 @@ jobs:
         uses: lucacome/docker-image-update-checker@v1
         with:
           base-image: jetty:9.4.50-jre11-alpine
-          image: openbankproject/obp-api:latest # update for your image
+          image: docker.io/openbankproject/obp-api:latest # update for your image
 
       # only execute subsequent steps if an update is actually NEEDED.
       # unfortunately we need to add an if-condition to all steps now
