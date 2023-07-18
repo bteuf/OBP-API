@@ -63,6 +63,7 @@ object Migration extends MdcLoggable {
       dummyScript()
       addAccountAccessConsumerId()
       populateTableViewDefinition()
+      populateMigrationOfViewDefinitionPermissions(startedBeforeSchemifier)
       populateTableAccountAccess()
       generateAndPopulateMissingCustomerUUIDs(startedBeforeSchemifier)
       generateAndPopulateMissingConsumersUUIDs(startedBeforeSchemifier)
@@ -124,6 +125,19 @@ object Migration extends MdcLoggable {
       val name = nameOf(populateTableViewDefinition)
       runOnce(name) {
         TableViewDefinition.populate(name)
+      }
+    }  
+    
+
+    private def populateMigrationOfViewDefinitionPermissions(startedBeforeSchemifier: Boolean): Boolean = {
+      if (startedBeforeSchemifier == true) {
+        logger.warn(s"Migration.database.populateMigrationOfViewDefinitionPermissions(true) cannot be run before Schemifier.")
+        true
+      } else {
+        val name = nameOf(populateMigrationOfViewDefinitionPermissions(startedBeforeSchemifier))
+        runOnce(name) {
+          MigrationOfViewDefinitionPermissions.populate(name)
+        }
       }
     }  
     
