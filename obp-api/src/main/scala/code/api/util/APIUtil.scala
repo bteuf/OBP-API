@@ -116,6 +116,7 @@ import org.apache.commons.lang3.StringUtils
 import java.security.AccessControlException
 import java.util.regex.Pattern
 
+import code.api.util.FutureUtil.{EndpointContext, EndpointTimeout}
 import code.etag.MappedETag
 import code.users.Users
 import net.liftweb.mapper.By
@@ -309,7 +310,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     }
   }
 
-  def logAPICall(callContext: Option[CallContextLight]) = {
+  def writeEndpointMetric(callContext: Option[CallContextLight]) = {
     callContext match {
       case Some(cc) =>
         if(getPropsAsBoolValue("write_metrics", false)) {
@@ -352,7 +353,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     }
   }
 
-  def logAPICall(date: TimeSpan, duration: Long, rd: Option[ResourceDoc]) = {
+  def writeEndpointMetric(date: TimeSpan, duration: Long, rd: Option[ResourceDoc]) = {
     val authorization = S.request.map(_.header("Authorization")).flatten
     val directLogin: Box[String] = S.request.map(_.header("DirectLogin")).flatten
     if(getPropsAsBoolValue("write_metrics", false)) {
@@ -480,7 +481,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
    */
   private def checkIfNotMatchHeader(cc: Option[CallContext], httpCode: Int, httpBody: Box[String], headerValue: String): Int = {
     val url = cc.map(_.url).getOrElse("")
-    val hash = HashUtil.Sha256Hash(s"${url}${httpBody.getOrElse("")}")
+    val hash = HashUtil.calculateETag(url, httpBody)
     if (httpCode == 200 && hash == headerValue) 304 else httpCode
   }
 
@@ -542,7 +543,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         s"""consumerId${consumerId}::userId${userId}"""
       }
     val cacheKey = s"""$compositeKey::${hashedRequestPayload}"""
-    val eTag = HashUtil.Sha256Hash(s"${url}${httpBody.getOrElse("")}")
+    val eTag = HashUtil.calculateETag(url, httpBody)
     
     if(httpVerb.toUpperCase() == "GET" || httpVerb.toUpperCase() == "HEAD") { // If-Modified-Since can only be used with a GET or HEAD
       val validETag = MappedETag.find(By(MappedETag.ETagResource, cacheKey)) match {
@@ -631,7 +632,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   }
   private def getRequestHeadersNewStyle(cc: Option[CallContext], httpBody: Box[String]): CustomResponseHeaders = {
     cc.map { i =>
-      val hash = HashUtil.Sha256Hash(s"${i.url}${httpBody.getOrElse("")}")
+      val hash = HashUtil.calculateETag(i.url, httpBody)
       CustomResponseHeaders(
         List(
           (ResponseHeader.ETag, hash), 
@@ -807,6 +808,9 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     def check401(message: String): Boolean = {
       message.contains(extractErrorMessageCode(UserNotLoggedIn))
     }
+    def check408(message: String): Boolean = {
+      message.contains(extractErrorMessageCode(requestTimeout))
+    }
     val (code, responseHeaders) =
       message match {
         case msg if check401(msg) =>
@@ -816,6 +820,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           (401, getHeaders() ::: headers.list ::: addHeader)
         case msg if check403(msg) =>
           (403, getHeaders() ::: headers.list)
+        case msg if check408(msg) =>
+          (408, getHeaders() ::: headers.list ::: List((ResponseHeader.Connection, "close")))
         case _ =>
           (httpCode, getHeaders() ::: headers.list)
       }
@@ -928,6 +934,17 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     value match {
       case regex(e) if(valueLength <= 512) => SILENCE_IS_GOLDEN
       case regex(e) if(valueLength > 512) => ErrorMessages.InvalidValueLength
+      case _ => ErrorMessages.InvalidValueCharacters
+    }
+  }
+  
+  /** only  A-Z, a-z, 0-9, -, _, ., and max length <= 16  */
+  def checkShortString(value:String): String ={
+    val valueLength = value.length
+    val regex = """^([A-Za-z0-9\-._]+)$""".r
+    value match {
+      case regex(e) if(valueLength <= 16) => SILENCE_IS_GOLDEN
+      case regex(e) if(valueLength > 16) => ErrorMessages.InvalidValueLength
       case _ => ErrorMessages.InvalidValueCharacters
     }
   }
@@ -1873,6 +1890,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
            * - We cannot assign the role to non existing bank
            */
           cc: CallContext => {
+            implicit val ec = EndpointContext(Some(cc)) // Supply call context in case of saving row to the metric table
             // if authentication check, do authorizedAccess, else do Rate Limit check
             for {
               (boxUser, callContext) <- checkAuth(cc)
@@ -2162,9 +2180,12 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
 
 
-  def fullBaseUrl : String = {
-    val crv = CurrentReq.value
-    val apiPathZeroFromRequest = crv.path.partPath(0)
+  def fullBaseUrl(callContext: Option[CallContext]) : String = {
+    // callContext.map(_.url).getOrElse("") --> eg: /obp/v2.0.0/banks/gh.29.uk/accounts/202309071568
+    val urlFromRequestArray = callContext.map(_.url).getOrElse("").split("/") //eg: Array("", obp, v2.0.0, banks, gh.29.uk, accounts, 202309071568)
+    
+    val apiPathZeroFromRequest = if( urlFromRequestArray.length>1) urlFromRequestArray.apply(1) else urlFromRequestArray.head
+    
     if (apiPathZeroFromRequest != ApiPathZero) throw new Exception("Configured ApiPathZero is not the same as the actual.")
 
     val path = s"$HostName/$ApiPathZero"
@@ -2173,7 +2194,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
 
   // Modify URL replacing placeholders for Ids
-  def contextModifiedUrl(url: String, context: DataContext) = {
+  def contextModifiedUrl(url: String, context: DataContext, callContext: Option[CallContext]) = {
 
     // Potentially replace BANK_ID
     val url2: String = context.bankId match {
@@ -2206,7 +2227,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     // Add host, port, prefix, version.
 
     // not correct because call could be in other version
-    val fullUrl = s"$fullBaseUrl$url6"
+    val fullUrl = s"${fullBaseUrl(callContext)}$url6"
 
     fullUrl
   }
@@ -2262,19 +2283,19 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
 
   // Returns API links (a list of them) that have placeholders (e.g. BANK_ID) replaced by values (e.g. ulster-bank)
-  def getApiLinks(callerContext: CallerContext, codeContext: CodeContext, dataContext: DataContext) : List[ApiLink]  = {
+  def getApiLinks(callerContext: CallerContext, codeContext: CodeContext, dataContext: DataContext, callContext: Option[CallContext]) : List[ApiLink]  = {
     val templates = getApiLinkTemplates(callerContext, codeContext)
     // Replace place holders in the urls like BANK_ID with the current value e.g. 'ulster-bank' and return as ApiLinks for external consumption
     val links = templates.map(i => ApiLink(i.rel,
-      contextModifiedUrl(i.requestUrl, dataContext) )
+      contextModifiedUrl(i.requestUrl, dataContext, callContext))
     )
     links
   }
 
 
   // Returns links formatted at objects.
-  def getHalLinks(callerContext: CallerContext, codeContext: CodeContext, dataContext: DataContext) : JValue  = {
-    val links = getApiLinks(callerContext, codeContext, dataContext)
+  def getHalLinks(callerContext: CallerContext, codeContext: CodeContext, dataContext: DataContext, callContext: Option[CallContext]) : JValue  = {
+    val links = getApiLinks(callerContext, codeContext, dataContext, callContext: Option[CallContext])
     getHalLinksFromApiLinks(links)
   }
 
@@ -2459,7 +2480,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   }
 
 
-  def saveConnectorMetric[R](blockOfCode: => R)(nameOfFunction: String = "")(implicit nameOfConnector: String): R = {
+  def writeMetricEndpointTiming[R](blockOfCode: => R)(nameOfFunction: String = "")(implicit nameOfConnector: String): R = {
     val t0 = System.currentTimeMillis()
     // call-by-name
     val result = blockOfCode
@@ -2474,7 +2495,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     result
   }
 
-  def logEndpointTiming[R](callContext: Option[CallContextLight])(blockOfCode: => R): R = {
+  def writeMetricEndpointTiming[R](callContext: Option[CallContextLight])(blockOfCode: => R): R = {
     val result = blockOfCode
     // call-by-name
     val endTime = Helpers.now
@@ -2485,7 +2506,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case _ =>
       // There are no enough information for logging
     }
-    logAPICall(callContext.map(_.copy(endTime = Some(endTime))))
+    writeEndpointMetric(callContext.map(_.copy(endTime = Some(endTime))))
     result
   }
 
@@ -2828,7 +2849,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   def futureToResponse[T](in: LAFuture[(T, Option[CallContext])]): JsonResponse = {
     RestContinuation.async(reply => {
       in.onSuccess(
-        t => logEndpointTiming(t._2.map(_.toLight))(reply.apply(successJsonResponseNewStyle(cc = t._1, t._2)(getHeadersNewStyle(t._2.map(_.toLight)))))
+        t => writeMetricEndpointTiming(t._2.map(_.toLight))(reply.apply(successJsonResponseNewStyle(cc = t._1, t._2)(getHeadersNewStyle(t._2.map(_.toLight)))))
       )
       in.onFail {
         case Failure(_, Full(JsonResponseException(jsonResponse)), _) =>
@@ -2841,7 +2862,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           extractAPIFailureNewStyle(msg) match {
             case Some(af) =>
               val callContextLight = af.ccl.map(_.copy(httpCode = Some(af.failCode)))
-              logEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode, callContextLight)(getHeadersNewStyle(af.ccl))))
+              writeMetricEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode, callContextLight)(getHeadersNewStyle(af.ccl))))
             case _ =>
               val errorResponse: JsonResponse = errorJsonResponse(msg)
               reply.apply(errorResponse)
@@ -2878,7 +2899,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
         case (Full(jsonResponse: JsonResponse), _: Option[_]) =>
           reply(jsonResponse)
         case t => Full(
-          logEndpointTiming(t._2.map(_.toLight))(
+          writeMetricEndpointTiming(t._2.map(_.toLight))(
             reply.apply(successJsonResponseNewStyle(t._1, t._2)(getHeadersNewStyle(t._2.map(_.toLight))))
           )
         )
@@ -2902,7 +2923,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           extractAPIFailureNewStyle(msg) match {
             case Some(af) =>
               val callContextLight = af.ccl.map(_.copy(httpCode = Some(af.failCode)))
-              Full(logEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode, callContextLight)(getHeadersNewStyle(af.ccl)))))
+              Full(writeMetricEndpointTiming(callContextLight)(reply.apply(errorJsonResponse(af.failMsg, af.failCode, callContextLight)(getHeadersNewStyle(af.ccl)))))
             case _ =>
               val errorResponse: JsonResponse = errorJsonResponse(msg)
               Full((reply.apply(errorResponse)))
@@ -2950,8 +2971,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
    * @tparam T
    * @return
    */
-  implicit def scalaFutureToBoxedJsonResponse[T](scf: OBPReturnType[T])(implicit m: Manifest[T]): Box[JsonResponse] = {
-    futureToBoxedResponse(scalaFutureToLaFuture(scf))
+  implicit def scalaFutureToBoxedJsonResponse[T](scf: OBPReturnType[T])(implicit t: EndpointTimeout, context: EndpointContext, m: Manifest[T]): Box[JsonResponse] = {
+    futureToBoxedResponse(scalaFutureToLaFuture(FutureUtil.futureWithTimeout(scf)))
   }
 
 
@@ -3176,7 +3197,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
   def authenticatedAccess(cc: CallContext, emptyUserErrorMsg: String = UserNotLoggedIn): OBPReturnType[Box[User]] = {
     anonymousAccess(cc) map{
       x => (
-        fullBoxOrException(x._1 ~> APIFailureNewStyle(emptyUserErrorMsg, 400, Some(cc.toLight))),
+        fullBoxOrException(x._1 ~> APIFailureNewStyle(emptyUserErrorMsg, 401, Some(cc.toLight))),
         x._2
       )
     } map {
@@ -3227,6 +3248,15 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
             throw JsonResponseException(jsonResponse)
           case _ => it
         }
+    } map { result =>
+      result._1 match {
+        case Failure(msg, t, c) =>
+          (
+            fullBoxOrException(result._1 ~> APIFailureNewStyle(msg, 401, Some(cc.toLight))),
+            result._2
+          )
+        case _ => result
+      }
     }
   }
 
@@ -4650,5 +4680,61 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
    * @return
    */
   def `checkIfContains::::` (value: String) = value.contains("::::")
+
+  val expectedOpenFuturesPerService = APIUtil.getPropsAsIntValue("expectedOpenFuturesPerService", 100)
+  def getBackOffFactor (openFutures: Int) = openFutures match {
+    case x if x < expectedOpenFuturesPerService*1 => 1 // i.e. every call will get passed through
+    case x if x < expectedOpenFuturesPerService*2  => 2
+    case x if x < expectedOpenFuturesPerService*3  => 4
+    case x if x < expectedOpenFuturesPerService*4  => 8
+    case x if x < expectedOpenFuturesPerService*5  => 16
+    case x if x < expectedOpenFuturesPerService*6  => 32
+    case x if x < expectedOpenFuturesPerService*7  => 64
+    case x if x < expectedOpenFuturesPerService*8  => 128
+    case x if x < expectedOpenFuturesPerService*9  => 256
+    case _ => 1024 // the default, catch-all
+  }
+  
+  type serviceNameOpenCallsCounterInt = Int
+  type serviceNameCounterInt = Int
+  val serviceNameCountersMap = new ConcurrentHashMap[String, (serviceNameCounterInt, serviceNameOpenCallsCounterInt)]
+  
+  def canOpenFuture(serviceName :String) = {
+    val (serviceNameCounter, serviceNameOpenFuturesCounter) = serviceNameCountersMap.getOrDefault(serviceName,(0,0))
+    //eg: 
+    //1%1 == 0
+    //2%1 == 0
+    //3%1 == 0
+    //
+    //1%2 == 1
+    //2%2 == 0
+    //3%2 == 1
+    //4%2 == 0
+    //
+    //1%4 == 1
+    //2%4 == 2
+    //3%4 == 3
+    //4%4 == 0
+    
+    serviceNameCounter % getBackOffFactor(serviceNameOpenFuturesCounter) == 0
+  }
+
+  def incrementFutureCounter(serviceName:String) = {
+    val (serviceNameCounter, serviceNameOpenFuturesCounter) = serviceNameCountersMap.getOrDefault(serviceName,(0,0))
+    serviceNameCountersMap.put(serviceName,(serviceNameCounter + 1,serviceNameOpenFuturesCounter+1))
+    val (serviceNameCounterLatest, serviceNameOpenFuturesCounterLatest) = serviceNameCountersMap.getOrDefault(serviceName,(0,0))
+    
+    if(serviceNameOpenFuturesCounterLatest>=expectedOpenFuturesPerService) {
+      logger.warn(s"incrementFutureCounter says: serviceName is $serviceName, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}, which is over expectedOpenFuturesPerService($expectedOpenFuturesPerService)")
+    }
+    logger.debug(s"incrementFutureCounter says: serviceName is $serviceName, serviceNameCounterLatest is ${serviceNameCounterLatest}, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}")
+  }
+
+  def decrementFutureCounter(serviceName:String) = {
+    val (serviceNameCounter, serviceNameOpenFuturesCounter) = serviceNameCountersMap.getOrDefault(serviceName, (0, 1))
+    serviceNameCountersMap.put(serviceName, (serviceNameCounter, serviceNameOpenFuturesCounter - 1))
+    val (serviceNameCounterLatest, serviceNameOpenFuturesCounterLatest) = serviceNameCountersMap.getOrDefault(serviceName, (0, 1))
+    logger.debug(s"decrementFutureCounter says: serviceName is $serviceName, serviceNameCounterLatest is $serviceNameCounterLatest, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}")
+  }
     
 }

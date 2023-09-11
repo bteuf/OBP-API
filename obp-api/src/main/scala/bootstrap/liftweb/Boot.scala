@@ -108,7 +108,7 @@ import code.productfee.ProductFee
 import code.products.MappedProduct
 import code.ratelimiting.RateLimiting
 import code.remotedata.RemotedataActors
-import code.scheduler.{DatabaseDriverScheduler, MetricsArchiveScheduler}
+import code.scheduler.{DatabaseDriverScheduler, JobScheduler, MetricsArchiveScheduler}
 import code.scope.{MappedScope, MappedUserScope}
 import code.snippet.{OAuthAuthorisation, OAuthWorkedThanks}
 import code.socialmedia.MappedSocialMedia
@@ -125,7 +125,7 @@ import code.transactionrequests.{MappedTransactionRequest, MappedTransactionRequ
 import code.usercustomerlinks.MappedUserCustomerLink
 import code.userlocks.UserLocks
 import code.users._
-import code.util.Helper.MdcLoggable
+import code.util.Helper.{MdcLoggable, SILENCE_IS_GOLDEN}
 import code.util.{Helper, HydraUtil}
 import code.validation.JsonSchemaValidation
 import code.views.Views
@@ -137,7 +137,7 @@ import com.openbankproject.commons.util.Functions.Implicits._
 import com.openbankproject.commons.util.{ApiVersion, Functions}
 import javax.mail.internet.MimeMessage
 import net.liftweb.common._
-import net.liftweb.db.DBLogEntry
+import net.liftweb.db.{DB, DBLogEntry}
 import net.liftweb.http.LiftRules.DispatchPF
 import net.liftweb.http._
 import net.liftweb.http.provider.HTTPCookie
@@ -149,7 +149,7 @@ import net.liftweb.util.Helpers._
 import net.liftweb.util.{DefaultConnectionIdentifier, Helpers, Props, Schedule, _}
 import org.apache.commons.io.FileUtils
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
  * A class that's instantiated early and run.  It allows the application
@@ -279,6 +279,25 @@ class Boot extends MdcLoggable {
        }
      }
     }
+
+    // Database query timeout
+    APIUtil.getPropsValue("database_query_timeout_in_seconds").map { timeoutInSeconds =>
+      tryo(timeoutInSeconds.toInt).isDefined match {
+        case true =>
+          DB.queryTimeout = Full(timeoutInSeconds.toInt)
+          logger.info(s"Query timeout database_query_timeout_in_seconds is set to ${timeoutInSeconds} seconds")
+        case false =>
+          logger.error(
+            s"""
+               |------------------------------------------------------------------------------------
+               |Query timeout database_query_timeout_in_seconds [${timeoutInSeconds}] is not an integer value.
+               |Actual DB.queryTimeout value: ${DB.queryTimeout}
+               |------------------------------------------------------------------------------------""".stripMargin)
+      }
+      
+    }
+    
+    
     implicit val formats = CustomJsonFormats.formats 
     LiftRules.statelessDispatch.prepend {
       case _ if tryo(DB.use(DefaultConnectionIdentifier){ conn => conn}.isClosed).isEmpty =>
@@ -613,11 +632,16 @@ class Boot extends MdcLoggable {
         // Check to see if the user explicitly requests a new locale 
         // In case it's true we use that value to set up a new cookie value
         S.param(PARAM_LOCALE) match {
-          case Full(requestedLocale) if requestedLocale != null => {
+          case Full(requestedLocale) if requestedLocale != null && APIUtil.checkShortString(requestedLocale)==SILENCE_IS_GOLDEN => {
             val computedLocale: Locale = I18NUtil.computeLocale(requestedLocale)
-            val id: Long = AuthUser.getCurrentUser.map(_.user.userPrimaryKey.value).getOrElse(0)
-            Users.users.vend.getResourceUserByResourceUserId(id).map { 
-              u => u.LastUsedLocale(computedLocale.toString).save
+            AuthUser.getCurrentUser.map(_.user.userPrimaryKey.value) match {
+              case Full(id) =>
+                Users.users.vend.getResourceUserByResourceUserId(id).map {
+                  u =>
+                    u.LastUsedLocale(computedLocale.toString).save
+                    logger.debug(s"ResourceUser.LastUsedLocale is saved for the resource user id: $id")
+                }
+              case _ => // There is no current user
             }
             S.addCookie(HTTPCookie(localeCookieName, requestedLocale))
             computedLocale
@@ -835,15 +859,26 @@ class Boot extends MdcLoggable {
 
   // create Hydra client if exists active consumer but missing Hydra client
   def createHydraClients() = {
-    import scala.concurrent.ExecutionContext.Implicits.global
-    // exists hydra clients id
-    val oAuth2ClientIds = HydraUtil.hydraAdmin.listOAuth2Clients(Long.MaxValue, 0L).stream()
-      .map[String](_.getClientId)
-      .collect(Collectors.toSet())
+    try {
+      import scala.concurrent.ExecutionContext.Implicits.global
+      // exists hydra clients id
+      val oAuth2ClientIds = HydraUtil.hydraAdmin.listOAuth2Clients(Long.MaxValue, 0L).stream()
+        .map[String](_.getClientId)
+        .collect(Collectors.toSet())
 
-    Consumers.consumers.vend.getConsumersFuture().foreach{ consumers =>
-      consumers.filter(consumer => consumer.isActive.get && !oAuth2ClientIds.contains(consumer.key.get))
-        .foreach(HydraUtil.createHydraClient(_))
+      Consumers.consumers.vend.getConsumersFuture().foreach{ consumers =>
+        consumers.filter(consumer => consumer.isActive.get && !oAuth2ClientIds.contains(consumer.key.get))
+          .foreach(HydraUtil.createHydraClient(_))
+      }
+    } catch {
+      case e: Exception =>
+        if(HydraUtil.integrateWithHydra) {
+          logger.error("------------------------------ Mirror consumer in hydra issue ------------------------------")
+          e.printStackTrace()
+        } else {
+          logger.warn("------------------------------ Mirror consumer in hydra issue ------------------------------")
+          logger.warn(e)
+        }
     }
   }
 
@@ -1014,6 +1049,7 @@ object ToSchemify {
   // The following tables are accessed directly via Mapper / JDBC
   val models: List[MetaMapper[_]] = List(
     AuthUser,
+    JobScheduler,
     MappedETag,
     AtmAttribute,
     Admin,

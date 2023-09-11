@@ -10,7 +10,7 @@ import code.api.util.NewStyle.HttpCode
 import code.api.util.{ApiRole, ApiTag, NewStyle}
 import code.bankconnectors.Connector
 import code.fx.fx
-import code.model._
+import code.api.Constant._
 import code.transactionrequests.TransactionRequests.TransactionRequestTypes.SEPA_CREDIT_TRANSFERS
 import code.transactionrequests.TransactionRequests.{PaymentServiceTypes, TransactionRequestTypes}
 import code.util.Helper
@@ -66,7 +66,7 @@ object APIMethods_PaymentInitiationServicePISApi extends RestHelper {
        "DELETE",
        "/PAYMENT_SERVICE/PAYMENT_PRODUCT/PAYMENTID",
        "Payment Cancellation Request",
-       s"""${mockedDataText(true)}
+       s"""${mockedDataText(false)}
 This method initiates the cancellation of a payment. Depending on the payment-service, the payment-product 
 and the ASPSP's implementation, this TPP call might be sufficient to cancel a payment. If an authorisation 
 of the payment cancellation is mandated by the ASPSP, a corresponding hyperlink will be contained in the 
@@ -566,11 +566,11 @@ $additionalInstructions
              _ <- Helper.booleanToFuture(invalidIban, cc=callContext) { ibanChecker.isValid == true }
              (toAccount, callContext) <- NewStyle.function.getToBankAccountByIban(toAccountIban, callContext)
 
-             //no accountAccess and no canAddTransactionRequestToOwnAccount ==> this will not throw exception,only return false! 
-             anyViewContainsCanAddTransactionRequestToAnyAccountPermission = Views.views.vend.permission(BankIdAccountId(fromAccount.bankId, fromAccount.accountId), u)
-               .map(_.views.map(_.canAddTransactionRequestToAnyAccount).find(_.==(true)).getOrElse(false)).getOrElse(false)
+             viewId = ViewId(SYSTEM_READ_TRANSACTIONS_BERLIN_GROUP_VIEW_ID)
+             bankIdAccountId = BankIdAccountId(fromAccount.bankId, fromAccount.accountId)
+             view <- NewStyle.function.checkAccountAccessAndGetView(viewId, bankIdAccountId, Full(u), callContext)
 
-             _ <- if (anyViewContainsCanAddTransactionRequestToAnyAccountPermission) 
+             _ <- if (view.canAddTransactionRequestToAnyAccount) 
                Future.successful(Full(Unit))
              else 
                NewStyle.function.hasEntitlement(fromAccount.bankId.value, u.userId, ApiRole.canCreateAnyTransactionRequest, callContext, InsufficientAuthorisationToCreateTransactionRequest)

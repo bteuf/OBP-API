@@ -1,17 +1,22 @@
 package code.api.v5_1_0
 
 
+import code.api.Constant
 import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON.{apiCollectionJson400, apiCollectionsJson400, apiInfoJson400, postApiCollectionJson400, revokedConsentJsonV310, _}
 import code.api.util.APIUtil._
 import code.api.util.ApiRole._
 import code.api.util.ApiTag._
 import code.api.util.ErrorMessages.{$UserNotLoggedIn, BankNotFound, ConsentNotFound, InvalidJsonFormat, UnknownError, UserNotFoundByUserId, UserNotLoggedIn, _}
+import code.api.util.FutureUtil.{EndpointContext, EndpointTimeout}
 import code.api.util.NewStyle.HttpCode
 import code.api.util._
+import code.api.v2_0_0.{EntitlementJSONs, JSONFactory200}
+import code.api.v3_0_0.JSONFactory300
 import code.api.v3_0_0.JSONFactory300.createAggregateMetricJson
 import code.api.v3_1_0.ConsentJsonV310
 import code.api.v3_1_0.JSONFactory310.createBadLoginStatusJson
 import code.api.v4_0_0.{JSONFactory400, PostApiCollectionJson400}
+import code.api.v5_0_0.ConsentJsonV500
 import code.atmattribute.AtmAttribute
 import code.bankconnectors.Connector
 import code.consent.Consents
@@ -22,15 +27,18 @@ import code.transactionrequests.TransactionRequests.TransactionRequestTypes.{app
 import code.userlocks.UserLocksProvider
 import code.users.Users
 import code.util.Helper
+import code.views.Views
 import code.views.system.{AccountAccess, ViewDefinition}
 import com.github.dwickern.macros.NameOf.nameOf
 import com.openbankproject.commons.ExecutionContext.Implicits.global
+import com.openbankproject.commons.dto.CustomerAndAttribute
 import com.openbankproject.commons.model.enums.{AtmAttributeType, UserAttributeType}
-import com.openbankproject.commons.model.{AtmId, AtmT, BankId}
+import com.openbankproject.commons.model.{AtmId, AtmT, BankId, Permission}
 import com.openbankproject.commons.util.{ApiVersion, ScannedApiVersion}
-import net.liftweb.common.Full
+import net.liftweb.common.{Box, Full}
 import net.liftweb.http.S
 import net.liftweb.http.rest.RestHelper
+import net.liftweb.json.parse
 import net.liftweb.mapper.By
 import net.liftweb.util.Helpers.tryo
 
@@ -77,7 +85,7 @@ trait APIMethods510 {
 
     def root (apiVersion : ApiVersion, apiVersionStatus: String) : OBPEndpoint = {
       case (Nil | "root" :: Nil) JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             _ <- Future() // Just start async call
           } yield {
@@ -105,14 +113,15 @@ trait APIMethods510 {
 
     lazy val waitingForGodot: OBPEndpoint = {
       case "waiting-for-godot" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
+          implicit val timeout = EndpointTimeout(Constant.mediumEndpointTimeoutInMillis) // Set endpoint timeout explicitly
           for {
             httpParams <- NewStyle.function.extractHttpParamsFromUrl(cc.url)
-          } yield {
-            val sleep: String = httpParams.filter(_.name == "sleep").headOption
+            sleep: String = httpParams.filter(_.name == "sleep").headOption
               .map(_.values.headOption.getOrElse("0")).getOrElse("0")
-            val sleepInMillis: Long = tryo(sleep.trim.toLong).getOrElse(0)
-            Thread.sleep(sleepInMillis)
+            sleepInMillis: Long = tryo(sleep.trim.toLong).getOrElse(0)
+            _ <- Future(Thread.sleep(sleepInMillis))
+          } yield {
             (JSONFactory510.waitingForGodot(sleepInMillis), HttpCode.`200`(cc.callContext))
           }
       }
@@ -141,7 +150,7 @@ trait APIMethods510 {
 
     lazy val getAllApiCollections: OBPEndpoint = {
       case "management" :: "api-collections" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (apiCollections, callContext) <- NewStyle.function.getAllApiCollections(cc.callContext)
           } yield {
@@ -177,7 +186,7 @@ trait APIMethods510 {
 
     lazy val createNonPersonalUserAttribute: OBPEndpoint = {
       case "users" :: userId ::"non-personal":: "attributes" :: Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           val failMsg = s"$InvalidJsonFormat The Json body should be the $UserAttributeJsonV510 "
           for {
             (user, callContext) <- NewStyle.function.getUserByUserId(userId, cc.callContext)
@@ -228,7 +237,7 @@ trait APIMethods510 {
 
     lazy val deleteNonPersonalUserAttribute: OBPEndpoint = {
       case "users" :: userId :: "non-personal" :: "attributes" :: userAttributeId :: Nil JsonDelete _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.getUserByUserId(userId, callContext)
@@ -268,7 +277,7 @@ trait APIMethods510 {
 
     lazy val getNonPersonalUserAttributes: OBPEndpoint = {
       case "users" :: userId :: "non-personal" ::"attributes" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- authenticatedAccess(cc)
             (user, callContext) <- NewStyle.function.getUserByUserId(userId, callContext)
@@ -278,6 +287,43 @@ trait APIMethods510 {
             ) 
           } yield {
             (JSONFactory510.createUserAttributesJson(userAttributes), HttpCode.`200`(callContext))
+          }
+      }
+    }
+
+
+
+    staticResourceDocs += ResourceDoc(
+      getEntitlementsAndPermissions,
+      implementedInApiVersion,
+      "getEntitlementsAndPermissions",
+      "GET",
+      "/users/USER_ID/entitlements-and-permissions",
+      "Get Entitlements and Permissions for a User",
+      s"""
+         |
+         |
+      """.stripMargin,
+      EmptyBody,
+      userJsonV300,
+      List(
+        $UserNotLoggedIn,
+        UserNotFoundByUserId, 
+        UserHasMissingRoles, 
+        UnknownError),
+      List(apiTagRole, apiTagEntitlement, apiTagUser),
+      Some(List(canGetEntitlementsForAnyUserAtAnyBank)))
+
+
+    lazy val getEntitlementsAndPermissions: OBPEndpoint = {
+      case "users" :: userId :: "entitlements-and-permissions" :: Nil JsonGet _ => {
+        cc => implicit val ec = EndpointContext(Some(cc))
+          for {
+            (user, callContext) <- NewStyle.function.getUserByUserId(userId, cc.callContext)
+            entitlements <- NewStyle.function.getEntitlementsByUserId(userId, callContext)
+          } yield {
+            val permissions: Option[Permission] = Views.views.vend.getPermissionForUser(user).toOption
+            (JSONFactory300.createUserInfoJSON (user, entitlements, permissions), HttpCode.`200`(callContext))
           }
       }
     }
@@ -307,7 +353,7 @@ trait APIMethods510 {
 
     lazy val customViewNamesCheck: OBPEndpoint = {
       case "management" :: "system" :: "integrity" :: "custom-view-names-check" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             incorrectViews: List[ViewDefinition] <- Future {
               ViewDefinition.getCustomViews().filter { view =>
@@ -343,7 +389,7 @@ trait APIMethods510 {
 
     lazy val systemViewNamesCheck: OBPEndpoint = {
       case "management" :: "system" :: "integrity" :: "system-view-names-check" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             incorrectViews: List[ViewDefinition] <- Future {
               ViewDefinition.getSystemViews().filter { view =>
@@ -380,7 +426,7 @@ trait APIMethods510 {
 
     lazy val accountAccessUniqueIndexCheck: OBPEndpoint = {
       case "management" :: "system" :: "integrity" :: "account-access-unique-index-1-check" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             groupedRows: Map[String, List[AccountAccess]] <- Future {
               AccountAccess.findAll().groupBy { a => 
@@ -416,7 +462,7 @@ trait APIMethods510 {
 
     lazy val accountCurrencyCheck: OBPEndpoint = {
       case "management" :: "system" :: "integrity"  :: "banks" :: BankId(bankId) :: "account-currency-check" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             currencies: List[String] <- Future {
               MappedBankAccount.findAll().map(_.accountCurrency.get).distinct
@@ -450,7 +496,7 @@ trait APIMethods510 {
 
     lazy val getCurrenciesAtBank: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "currencies" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             _ <- Helper.booleanToFuture(failMsg = ConsumerHasMissingRoles + CanReadFx, cc=cc.callContext) {
               checkScope(bankId.value, getConsumerPrimaryKey(cc.callContext), ApiRole.canReadFx)
@@ -490,7 +536,7 @@ trait APIMethods510 {
 
     lazy val orphanedAccountCheck: OBPEndpoint = {
       case "management" :: "system" :: "integrity"  :: "banks" :: BankId(bankId) :: "orphaned-account-check" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             accountAccesses: List[String] <- Future {
               AccountAccess.findAll(By(AccountAccess.bank_id, bankId.value)).map(_.account_id.get)
@@ -542,7 +588,7 @@ trait APIMethods510 {
 
     lazy val createAtmAttribute : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: "attributes" :: Nil JsonPost json -> _=> {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- NewStyle.function.getAtm(bankId, atmId, cc.callContext)
             failMsg = s"$InvalidJsonFormat The Json body should be the $AtmAttributeJsonV510 "
@@ -596,7 +642,7 @@ trait APIMethods510 {
 
     lazy val getAtmAttributes : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: "attributes" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- NewStyle.function.getAtm(bankId, atmId, cc.callContext)
             (attributes, callContext) <- NewStyle.function.getAtmAttributesByAtm(bankId, atmId, callContext)
@@ -632,7 +678,7 @@ trait APIMethods510 {
 
     lazy val getAtmAttribute : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: "attributes" :: atmAttributeId :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- NewStyle.function.getAtm(bankId, atmId, cc.callContext)
             (attribute, callContext) <- NewStyle.function.getAtmAttributeById(atmAttributeId, callContext)
@@ -671,7 +717,7 @@ trait APIMethods510 {
 
     lazy val updateAtmAttribute : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: "attributes" :: atmAttributeId :: Nil JsonPut json -> _ =>{
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- NewStyle.function.getAtm(bankId, atmId, cc.callContext)
             failMsg = s"$InvalidJsonFormat The Json body should be the $AtmAttributeJsonV510 "
@@ -729,7 +775,7 @@ trait APIMethods510 {
 
     lazy val deleteAtmAttribute : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: "attributes" :: atmAttributeId ::  Nil JsonDelete _=> {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- NewStyle.function.getAtm(bankId, atmId, cc.callContext)
             (atmAttribute, callContext) <- NewStyle.function.deleteAtmAttribute(atmAttributeId, callContext)
@@ -738,9 +784,45 @@ trait APIMethods510 {
           }
       }
     }
-    
-    
 
+
+    staticResourceDocs += ResourceDoc(
+      getConsentByConsentId,
+      implementedInApiVersion,
+      nameOf(getConsentByConsentId),
+      "GET",
+      "/consumer/consents/CONSENT_ID",
+      "Get Consent By Consent Id",
+      s"""
+         |
+         |This endpoint gets the Consent By consent id.
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+      """.stripMargin,
+      EmptyBody,
+      consentJsonV500,
+      List(
+        $UserNotLoggedIn,
+        UnknownError
+      ),
+      List(apiTagConsent, apiTagPSD2AIS, apiTagPsd2))
+    lazy val getConsentByConsentId: OBPEndpoint = {
+      case "consumer" :: "consents" :: consentId :: Nil  JsonGet _  => {
+        cc => implicit val ec = EndpointContext(Some(cc))
+          for {
+            consent <- Future { Consents.consentProvider.vend.getConsentByConsentId(consentId)} map {
+              unboxFullOrFail(_, cc.callContext, ConsentNotFound)
+            }
+            _ <- Helper.booleanToFuture(failMsg = ConsentNotFound, cc = cc.callContext) {
+              consent.mUserId == cc.userId
+            }
+          } yield {
+            (JSONFactory510.getConsentInfoJson(consent), HttpCode.`200`(cc))
+          }
+      }
+    }
+    
     staticResourceDocs += ResourceDoc(
       revokeConsentAtBank,
       implementedInApiVersion,
@@ -775,7 +857,7 @@ trait APIMethods510 {
 
     lazy val revokeConsentAtBank: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "consents" :: consentId :: Nil JsonDelete _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(user), callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -826,7 +908,7 @@ trait APIMethods510 {
     )
     lazy val selfRevokeConsent: OBPEndpoint = {
       case "my" :: "consent" :: "current" :: Nil JsonDelete _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(user), callContext) <- authenticatedAccess(cc)
             consentId = getConsentIdRequestHeaderValue(cc.requestHeaders).getOrElse("")
@@ -867,7 +949,7 @@ trait APIMethods510 {
     )
     lazy val mtlsClientCertificateInfo: OBPEndpoint = {
       case "my" :: "mtls" :: "certificate" :: "current" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(_), callContext) <- authenticatedAccess(cc)
             info <- Future(X509.getCertificateInfo(APIUtil.`getPSD2-CERT`(cc.requestHeaders))) map {
@@ -904,7 +986,7 @@ trait APIMethods510 {
 
     lazy val updateMyApiCollection: OBPEndpoint = {
       case "my" :: "api-collections" :: apiCollectionId :: Nil JsonPut json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             putJson <- NewStyle.function.tryons(s"$InvalidJsonFormat The Json body should be the $PostApiCollectionJson400", 400, cc.callContext) {
               json.extract[PostApiCollectionJson400]
@@ -947,7 +1029,7 @@ trait APIMethods510 {
     
     lazy val getUserByProviderAndUsername: OBPEndpoint = {
       case "users" :: "provider" :: provider :: "username" :: username :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             user <- Users.users.vend.getUserByProviderAndUsernameFuture(provider, username) map {
               x => unboxFullOrFail(x, cc.callContext, UserNotFoundByProviderAndUsername, 404)
@@ -981,7 +1063,7 @@ trait APIMethods510 {
     lazy val getUserLockStatus: OBPEndpoint = {
       //get private accounts for all banks
       case "users" ::provider :: username :: "lock-status" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- SS.user
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canReadUserLockedStatus, callContext)
@@ -1022,7 +1104,7 @@ trait APIMethods510 {
     lazy val unlockUserByProviderAndUsername: OBPEndpoint = {
       //get private accounts for all banks
       case "users" ::  provider :: username :: "lock-status" :: Nil JsonPut req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- SS.user
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canUnlockUser, callContext)
@@ -1066,7 +1148,7 @@ trait APIMethods510 {
       Some(List(canLockUser)))
     lazy val lockUserByProviderAndUsername: OBPEndpoint = {
       case "users" :: provider :: username :: "locks" :: Nil JsonPost req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- SS.user
             userLocks <- Future {
@@ -1141,6 +1223,7 @@ trait APIMethods510 {
     lazy val getAggregateMetrics: OBPEndpoint = {
       case "management" :: "aggregate-metrics" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canReadAggregateMetrics, callContext)
@@ -1156,6 +1239,47 @@ trait APIMethods510 {
 
       }
     }
+
+
+
+    staticResourceDocs += ResourceDoc(
+      getCustomersForUserIdsOnly,
+      implementedInApiVersion,
+      nameOf(getCustomersForUserIdsOnly),
+      "GET",
+      "/users/current/customers/customer_ids",
+      "Get Customers for Current User (IDs only)",
+      s"""Gets all Customers Ids that are linked to a User.
+         |
+         |
+         |${authenticationRequiredMessage(true)}
+         |
+         |""",
+      EmptyBody,
+      customersWithAttributesJsonV300,
+      List(
+        $UserNotLoggedIn,
+        UserCustomerLinksNotFoundForUser,
+        UnknownError
+      ),
+      List(apiTagCustomer, apiTagUser)
+    )
+    
+    lazy val getCustomersForUserIdsOnly : OBPEndpoint = {
+      case "users" :: "current" :: "customers" :: "customer_ids" :: Nil JsonGet _ => {
+        cc => {
+          implicit val ec = EndpointContext(Some(cc))
+          for {
+            (customers, callContext) <- Connector.connector.vend.getCustomersByUserId(cc.userId, cc.callContext) map {
+              connectorEmptyResponse(_, cc.callContext)
+            }
+          } yield {
+            (JSONFactory510.createCustomersIds(customers), HttpCode.`200`(callContext))
+          }
+        }
+      }
+    }
+    
 
     staticResourceDocs += ResourceDoc(
       createAtm,
@@ -1177,7 +1301,7 @@ trait APIMethods510 {
     )
     lazy val createAtm: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             atmJsonV510 <- NewStyle.function.tryons(s"$InvalidJsonFormat The Json body should be the ${classOf[AtmJsonV510]}", 400, cc.callContext) {
               val atm = json.extract[PostAtmJsonV510]
@@ -1219,7 +1343,7 @@ trait APIMethods510 {
     )
     lazy val updateAtm: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: Nil JsonPut json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (atm, callContext) <- NewStyle.function.getAtm(bankId, atmId, cc.callContext)
             atmJsonV510 <- NewStyle.function.tryons(s"$InvalidJsonFormat The Json body should be the ${classOf[AtmJsonV510]}", 400, callContext) {
@@ -1269,7 +1393,7 @@ trait APIMethods510 {
     )
     lazy val getAtms: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           val limit = S.param("limit")
           val offset = S.param("offset")
           for {
@@ -1329,7 +1453,7 @@ trait APIMethods510 {
     )
     lazy val getAtm: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- getAtmsIsPublic match {
               case false => authenticatedAccess(cc)
@@ -1367,7 +1491,7 @@ trait APIMethods510 {
     )
     lazy val deleteAtm: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: AtmId(atmId) :: Nil JsonDelete _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (atm, callContext) <- NewStyle.function.getAtm(bankId, atmId, cc.callContext)
             (deleted, callContext) <- NewStyle.function.deleteAtm(atm, callContext)

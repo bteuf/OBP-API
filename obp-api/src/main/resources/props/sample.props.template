@@ -100,6 +100,14 @@ read_authentication_type_validation_requires_role=false
 ## enable logging all the database queries in log file
 #logging.database.queries.enable=true
 
+## enable logging all the database queries in log file
+#database_query_timeout_in_seconds=
+
+## Define endpoint timeouts in miliseconds
+short_endpoint_timeout = 1000
+medium_endpoint_timeout = 7000
+long_endpoint_timeout = 60000
+
 ##Added Props property_name_prefix, default is OBP_. This adds the prefix only for the system environment property name, eg: db.driver --> OBP_db.driver
 #system_environment_property_name_prefix=OBP_
 
@@ -1232,3 +1240,7 @@ retain_metrics_scheduler_interval_in_seconds = 3600
 
 #if same session used for different ip address, we can show this warning, default is false.
 show_ip_address_change_warning=false
+
+
+#the default expected Open Futures Per Service for the BackOffFactor parameter
+expectedOpenFuturesPerService=100

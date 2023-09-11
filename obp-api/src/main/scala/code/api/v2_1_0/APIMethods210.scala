@@ -1,10 +1,12 @@
 package code.api.v2_1_0
 
 import java.util.Date
+
 import code.TransactionTypes.TransactionType
 import code.api.util
 import code.api.util.ApiTag._
 import code.api.util.ErrorMessages.TransactionDisabled
+import code.api.util.FutureUtil.EndpointContext
 import code.api.util.NewStyle.HttpCode
 import code.api.util.{APIUtil, ApiRole, ErrorMessages, NewStyle}
 import code.api.v1_3_0.{JSONFactory1_3_0, _}
@@ -102,7 +104,7 @@ trait APIMethods210 {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTagSandbox),
+      List(apiTagSandbox, apiTagOldStyle),
       Some(List(canCreateSandbox)))
 
 
@@ -146,7 +148,7 @@ trait APIMethods210 {
     lazy val getTransactionRequestTypesSupportedByBank: OBPEndpoint = {
       // Get transaction request types supported by the bank
       case "banks" :: BankId(bankId) :: "transaction-request-types" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- getTransactionRequestTypesIsPublic match {
               case false => authenticatedAccess(cc)
@@ -396,7 +398,7 @@ trait APIMethods210 {
     lazy val createTransactionRequest: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "accounts" :: AccountId(accountId) :: ViewId(viewId) :: "transaction-request-types" ::
         TransactionRequestType(transactionRequestType) :: "transaction-requests" :: Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.isEnabledTransactionRequests(callContext)
@@ -601,7 +603,7 @@ trait APIMethods210 {
     lazy val answerTransactionRequestChallenge: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "accounts" :: AccountId(accountId) :: ViewId(viewId) :: "transaction-request-types" ::
         TransactionRequestType(transactionRequestType) :: "transaction-requests" :: TransactionRequestId(transReqId) :: "challenge" :: Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
             for {
               // Check we have a User
               (Full(u), callContext) <- authenticatedAccess(cc)
@@ -703,7 +705,7 @@ trait APIMethods210 {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTagTransactionRequest, apiTagPsd2))
+      List(apiTagTransactionRequest, apiTagPsd2, apiTagOldStyle))
 
     lazy val getTransactionRequests: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "accounts" :: AccountId(accountId) :: ViewId(viewId) :: "transaction-requests" :: Nil JsonGet _ => {
@@ -748,7 +750,7 @@ trait APIMethods210 {
 
     lazy val getRoles: OBPEndpoint = {
       case "roles" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             _ <- authenticatedAccess(cc)
           }
@@ -788,7 +790,7 @@ trait APIMethods210 {
 
     lazy val getEntitlementsByBankAndUser: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "users" :: userId :: "entitlements" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(loggedInUser), callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -834,7 +836,7 @@ trait APIMethods210 {
         InvalidConsumerId,
         UnknownError
       ),
-      List(apiTagConsumer),
+      List(apiTagConsumer, apiTagOldStyle),
       Some(List(canGetConsumers)))
 
 
@@ -872,7 +874,7 @@ trait APIMethods210 {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTagConsumer),
+      List(apiTagConsumer, apiTagOldStyle),
       Some(List(canGetConsumers)))
 
 
@@ -909,7 +911,7 @@ trait APIMethods210 {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTagConsumer),
+      List(apiTagConsumer, apiTagOldStyle),
       Some(List(canEnableConsumers,canDisableConsumers)))
 
 
@@ -961,7 +963,7 @@ trait APIMethods210 {
 
     lazy val addCardForBank: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "cards" :: Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canCreateCardsForBank, callContext)
@@ -1045,7 +1047,7 @@ trait APIMethods210 {
 
     lazy val getUsers: OBPEndpoint = {
       case "users" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canGetAnyUser, callContext)
@@ -1095,6 +1097,7 @@ trait APIMethods210 {
     lazy val createTransactionType: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "transaction-types" ::  Nil JsonPut json -> _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -1128,7 +1131,7 @@ trait APIMethods210 {
       emptyObjectJson,
       atmJson,
       List(UserNotLoggedIn, BankNotFound, AtmNotFoundByAtmId, UnknownError),
-      List(apiTagATM)
+      List(apiTagATM, apiTagOldStyle)
     )
 
     lazy val getAtm: OBPEndpoint = {
@@ -1177,7 +1180,7 @@ trait APIMethods210 {
         BranchNotFoundByBranchId,
         UnknownError
       ),
-      List(apiTagBranch)
+      List(apiTagBranch, apiTagOldStyle)
     )
 
     lazy val getBranch: OBPEndpoint = {
@@ -1228,7 +1231,7 @@ trait APIMethods210 {
         ProductNotFoundByProductCode,
         UnknownError
       ),
-      List(apiTagProduct)
+      List(apiTagProduct, apiTagOldStyle)
     )
 
     lazy val getProduct: OBPEndpoint = {
@@ -1279,7 +1282,7 @@ trait APIMethods210 {
         ProductNotFoundByProductCode,
         UnknownError
       ),
-      List(apiTagProduct)
+      List(apiTagProduct, apiTagOldStyle)
     )
 
     lazy val getProducts : OBPEndpoint = {
@@ -1338,7 +1341,7 @@ trait APIMethods210 {
         CreateConsumerError,
         UnknownError
       ),
-      List(apiTagCustomer, apiTagPerson),
+      List(apiTagCustomer, apiTagPerson, apiTagOldStyle),
       Some(List(canCreateCustomer,canCreateUserCustomerLink,canCreateCustomerAtAnyBank,canCreateUserCustomerLinkAtAnyBank)))
 
     // TODO in next version?
@@ -1383,7 +1386,6 @@ trait APIMethods210 {
               "") ?~! CreateConsumerError
             _ <- booleanToBox(UserCustomerLink.userCustomerLink.vend.getUserCustomerLink(user_id, customer.customerId).isEmpty == true) ?~! CustomerAlreadyExistsForUser
             _ <- UserCustomerLink.userCustomerLink.vend.createUserCustomerLink(user_id, customer.customerId, new Date(), true) ?~! CreateUserCustomerLinksError
-            _ <- Connector.connector.vend.UpdateUserAccoutViewsByUsername(customer_user.name)
             
           } yield {
             val json = JSONFactory210.createCustomerJson(customer)
@@ -1410,7 +1412,7 @@ trait APIMethods210 {
         UserCustomerLinksNotFoundForUser,
         UnknownError
       ),
-      List(apiTagCustomer, apiTagUser))
+      List(apiTagCustomer, apiTagUser, apiTagOldStyle))
 
     lazy val getCustomersForUser : OBPEndpoint = {
       case "users" :: "current" :: "customers" :: Nil JsonGet _ => {
@@ -1453,6 +1455,7 @@ trait APIMethods210 {
     lazy val getCustomersForCurrentUserAtBank : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "customers" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -1488,7 +1491,7 @@ trait APIMethods210 {
         UserHasMissingRoles, 
         UnknownError
       ),
-      List(apiTagBranch),
+      List(apiTagBranch, apiTagOldStyle),
       Some(List(canUpdateBranch)))
 
 
@@ -1531,7 +1534,7 @@ trait APIMethods210 {
         InsufficientAuthorisationToCreateBranch, 
         UnknownError
       ),
-      List(apiTagBranch, apiTagOpenData),
+      List(apiTagBranch, apiTagOpenData, apiTagOldStyle),
       Some(List(canCreateBranch)))
 
     lazy val createBranch: OBPEndpoint = {
@@ -1572,7 +1575,7 @@ trait APIMethods210 {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTagConsumer),
+      List(apiTagConsumer, apiTagOldStyle),
       Some(List(canUpdateConsumerRedirectUrl))
     )
     
@@ -1675,6 +1678,7 @@ trait APIMethods210 {
     lazy val getMetrics : OBPEndpoint = {
       case "management" :: "metrics" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canReadMetrics, callContext)

@@ -81,85 +81,6 @@ import code.views.system.AccountAccess
 import net.liftweb.mapper.By
 
 object NewStyle extends MdcLoggable{
-  lazy val endpoints: List[(String, String)] = List(
-    (nameOf(ImplementationsResourceDocs.getResourceDocsObp), ApiVersion.v1_4_0.toString),
-    (nameOf(Implementations1_2_1.deleteWhereTagForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getOtherAccountForTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getOtherAccountMetadata), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getCounterpartyPublicAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addCounterpartyMoreInfo), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateCounterpartyMoreInfo), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyMoreInfo), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addCounterpartyPublicAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addCounterpartyUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateCounterpartyUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyCorporateLocation), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyPhysicalLocation), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addCounterpartyImageUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateCounterpartyImageUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyImageUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addCounterpartyOpenCorporatesUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateCounterpartyOpenCorporatesUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyOpenCorporatesUrl), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addOtherAccountPrivateAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateCounterpartyPrivateAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyPrivateAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateCounterpartyPublicAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCounterpartyPublicAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getOtherAccountPrivateAlias), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addWhereTagForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateWhereTagForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateAccountLabel), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getWhereTagForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addImageForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteImageForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getImagesForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addTagForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteTagForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getTagsForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addCommentForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteCommentForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getCommentsForViewOnTransaction), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteTransactionNarrative), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.updateTransactionNarrative), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addTransactionNarrative), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.getTransactionNarrative), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.deleteViewForBankAccount), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_2_1.addPermissionForUserForBankAccountForOneView), ApiVersion.v1_2_1.toString),
-    (nameOf(Implementations1_4_0.getTransactionRequestTypes), ApiVersion.v1_4_0.toString),
-    (nameOf(Implementations1_4_0.addCustomerMessage), ApiVersion.v1_4_0.toString),
-    (nameOf(Implementations2_0_0.getAllEntitlements), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.publicAccountsAtOneBank), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.privateAccountsAtOneBank), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.corePrivateAccountsAtOneBank), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.getKycDocuments), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.getKycMedia), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.getKycStatuses), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.getKycChecks), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.addKycDocument), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.addKycMedia), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.addKycStatus), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.addKycCheck), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.addEntitlement), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.deleteEntitlement), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.getTransactionTypes), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.getPermissionsForBankAccount), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_0_0.publicAccountsAllBanks), ApiVersion.v2_0_0.toString),
-    (nameOf(Implementations2_1_0.getEntitlementsByBankAndUser), ApiVersion.v2_1_0.toString),
-    (nameOf(Implementations2_1_0.getRoles), ApiVersion.v2_1_0.toString),
-    (nameOf(Implementations2_1_0.getCustomersForCurrentUserAtBank), ApiVersion.v2_1_0.toString),
-    (nameOf(Implementations2_1_0.getMetrics), ApiVersion.v2_1_0.toString),
-    (nameOf(Implementations2_1_0.createTransactionType), ApiVersion.v2_1_0.toString),
-    (nameOf(Implementations2_1_0.getTransactionRequestTypesSupportedByBank), ApiVersion.v2_1_0.toString),
-    (nameOf(Implementations2_2_0.config), ApiVersion.v2_2_0.toString),
-    (nameOf(Implementations2_2_0.getMessageDocs), ApiVersion.v2_2_0.toString),
-    (nameOf(Implementations2_2_0.getViewsForBankAccount), ApiVersion.v2_2_0.toString),
-    (nameOf(Implementations2_2_0.getCurrentFxRate), ApiVersion.v2_2_0.toString),
-    (nameOf(Implementations2_2_0.getExplictCounterpartiesForAccount), ApiVersion.v2_2_0.toString),
-    (nameOf(Implementations2_2_0.getExplictCounterpartyById), ApiVersion.v2_2_0.toString),
-    (nameOf(Implementations2_2_0.createAccount), ApiVersion.v2_2_0.toString)
-  )
 
   object HttpCode {
     def `200`(callContext: Option[CallContext]): Option[CallContext] = {
@@ -1071,17 +992,16 @@ object NewStyle extends MdcLoggable{
       validateRequestPayload(callContext)(boxResult)
     }
 
-    def createUserAuthContext(user: User, key: String, value: String,  callContext: Option[CallContext]): OBPReturnType[UserAuthContext] = {
-      Connector.connector.vend.createUserAuthContext(user.userId, key, value, callContext) map {
-        i => (connectorEmptyResponse(i._1, callContext), i._2)
-      } map {
-        result =>
-          //We will call the `refreshUserAccountAccess` after we successfully create the UserAuthContext
-          // because `createUserAuthContext` is a connector method, here is the entry point for OBP to refreshUser
-          AuthUser.refreshUser(user, callContext)
-          result
+    def createUserAuthContext(user: User, key: String, value: String,  callContext: Option[CallContext]): OBPReturnType[UserAuthContext] = 
+      for{
+        (userAuthContext, callContext) <- Connector.connector.vend.createUserAuthContext(user.userId, key, value, callContext) map { 
+          i => (connectorEmptyResponse(i._1, callContext), i._2)
+        }
+        _ <- AuthUser.refreshUser(user, callContext)
+      }yield{
+        (userAuthContext, callContext)
       }
-    }
+    
     def createUserAuthContextUpdate(userId: String, key: String, value: String, callContext: Option[CallContext]): OBPReturnType[UserAuthContextUpdate] = {
       Connector.connector.vend.createUserAuthContextUpdate(userId, key, value, callContext) map {
         i => (connectorEmptyResponse(i._1, callContext), i._2)
@@ -1098,17 +1018,15 @@ object NewStyle extends MdcLoggable{
       }
     }
 
-    def deleteUserAuthContextById(user: User, userAuthContextId: String, callContext: Option[CallContext]): OBPReturnType[Boolean] = {
-      Connector.connector.vend.deleteUserAuthContextById(userAuthContextId, callContext) map {
-        i => (connectorEmptyResponse(i._1, callContext), i._2)
-      }map {
-        result =>
-          // We will call the `refreshUserAccountAccess` after we successfully delete the UserAuthContext
-          // because `deleteUserAuthContextById` is a connector method, here is the entry point for OBP to refreshUser
-          AuthUser.refreshUser(user, callContext)
-          result
+    def deleteUserAuthContextById(user: User, userAuthContextId: String, callContext: Option[CallContext]): OBPReturnType[Boolean] =
+      for {
+        (userAuthContext, callContext) <- Connector.connector.vend.deleteUserAuthContextById(userAuthContextId, callContext)  map {
+          i => (connectorEmptyResponse(i._1, callContext), i._2)
+        }
+        _ <- AuthUser.refreshUser(user, callContext)
+      } yield {
+        (userAuthContext, callContext)
       }
-    }
     
     def deleteUser(userPrimaryKey: UserPrimaryKey, callContext: Option[CallContext]): OBPReturnType[Boolean] = Future {
       AuthUser.scrambleAuthUser(userPrimaryKey) match {

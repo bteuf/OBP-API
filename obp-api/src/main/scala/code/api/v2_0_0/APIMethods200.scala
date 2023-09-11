@@ -1,6 +1,7 @@
 package code.api.v2_0_0
 
 import java.util.{Calendar, Date}
+
 import code.api.Constant._
 import code.TransactionTypes.TransactionType
 import code.api.{APIFailure, APIFailureNewStyle}
@@ -9,6 +10,7 @@ import code.api.ResourceDocs1_4_0.SwaggerDefinitionsJSON._
 import code.api.util.APIUtil._
 import code.api.util.ApiTag._
 import code.api.util.ErrorMessages.UserNotLoggedIn
+import code.api.util.FutureUtil.EndpointContext
 import code.api.util.NewStyle.HttpCode
 import code.api.util._
 import code.api.v1_2_1.OBPAPI1_2_1._
@@ -26,8 +28,9 @@ import code.model.dataAccess.{AuthUser, BankAccountCreation}
 import code.search.{elasticsearchMetrics, elasticsearchWarehouse}
 import code.socialmedia.SocialMediaHandle
 import code.usercustomerlinks.UserCustomerLink
+import code.users.Users
 import code.util.Helper
-import code.util.Helper.booleanToBox
+import code.util.Helper.{booleanToBox, booleanToFuture}
 import code.views.Views
 import code.views.system.ViewDefinition
 import com.openbankproject.commons.model._
@@ -70,8 +73,8 @@ trait APIMethods200 {
   }
   
   // Shows accounts without view
-  private def coreBankAccountListToJson(callerContext: CallerContext, codeContext: CodeContext, user: User, bankAccounts: List[BankAccount], privateViewsUserCanAccess : List[View]): JValue = {
-    Extraction.decompose(coreBankAccountList(callerContext, codeContext, user, bankAccounts, privateViewsUserCanAccess))
+  private def coreBankAccountListToJson(callerContext: CallerContext, codeContext: CodeContext, user: User, bankAccounts: List[BankAccount], privateViewsUserCanAccess : List[View], callContext: Option[CallContext]): JValue = {
+    Extraction.decompose(coreBankAccountList(callerContext, codeContext, user, bankAccounts, privateViewsUserCanAccess, callContext))
   }
 
   private def privateBasicBankAccountList(bankAccounts: List[BankAccount], privateViewsUserCanAccessAtOneBank : List[View]): List[BasicAccountJSON] = {
@@ -98,7 +101,7 @@ trait APIMethods200 {
     accJson
   }
 
-  private def coreBankAccountList(callerContext: CallerContext, codeContext: CodeContext, user: User, bankAccounts: List[BankAccount], privateViewsUserCanAccess : List[View]): List[CoreAccountJSON] = {
+  private def coreBankAccountList(callerContext: CallerContext, codeContext: CodeContext, user: User, bankAccounts: List[BankAccount], privateViewsUserCanAccess : List[View], callContext: Option[CallContext]): List[CoreAccountJSON] = {
     val accJson : List[CoreAccountJSON] = bankAccounts.map(account => {
       val viewsAvailable : List[BasicViewJson] =
         privateViewsUserCanAccess
@@ -108,7 +111,7 @@ trait APIMethods200 {
 
       val dataContext = DataContext(Full(user), Some(account.bankId), Some(account.accountId), Empty, Empty, Empty)
 
-      val links = code.api.util.APIUtil.getHalLinks(callerContext, codeContext, dataContext)
+      val links = code.api.util.APIUtil.getHalLinks(callerContext, codeContext, dataContext, callContext)
 
       JSONFactory200.createCoreAccountJSON(account, links)
     })
@@ -150,7 +153,7 @@ trait APIMethods200 {
       emptyObjectJson,
       basicAccountsJSON,
       List(UserNotLoggedIn, UnknownError),
-      List(apiTagAccount, apiTagPrivateData, apiTagPublicData))
+      List(apiTagAccount, apiTagPrivateData, apiTagPublicData, apiTagOldStyle))
 
 
     lazy val getPrivateAccountsAllBanks : OBPEndpoint = {
@@ -184,7 +187,7 @@ trait APIMethods200 {
       emptyObjectJson,
       coreAccountsJSON,
       List(UnknownError),
-      List(apiTagAccount, apiTagPrivateData, apiTagPsd2))
+      List(apiTagAccount, apiTagPrivateData, apiTagPsd2, apiTagOldStyle))
 
 
     apiRelations += ApiRelation(corePrivateAccountsAllBanks, getCoreAccountById, "detail")
@@ -201,7 +204,7 @@ trait APIMethods200 {
                 (privateViewsUserCanAccess, privateAccountAccess) <- Full(Views.views.vend.privateViewsUserCanAccess(u))
                 privateAccounts <- Full(BankAccountX.privateAccounts(privateAccountAccess))
               } yield {
-                val coreBankAccountListJson = coreBankAccountListToJson(CallerContext(corePrivateAccountsAllBanks), codeContext, u, privateAccounts, privateViewsUserCanAccess)
+                val coreBankAccountListJson = coreBankAccountListToJson(CallerContext(corePrivateAccountsAllBanks), codeContext, u, privateAccounts, privateViewsUserCanAccess, Some(cc))
                 val response = successJsonResponse(coreBankAccountListJson)
                 response
               }
@@ -232,7 +235,7 @@ trait APIMethods200 {
     lazy val publicAccountsAllBanks : OBPEndpoint = {
       //get public accounts for all banks
       case "accounts" :: "public" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (publicViews, publicAccountAccess) <- Future(Views.views.vend.publicViews)
             publicAccountsJson <- NewStyle.function.tryons(CannotGetAccounts, 400, Some(cc)){
@@ -273,7 +276,7 @@ trait APIMethods200 {
     lazy val getPrivateAccountsAtOneBank : OBPEndpoint = {
 
       case "banks" :: BankId(bankId) :: "accounts" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for{
             (Full(u), callContext) <- authenticatedAccess(cc)
             (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -285,8 +288,8 @@ trait APIMethods200 {
       }
     }
 
-    def corePrivateAccountsAtOneBankResult (callerContext: CallerContext, codeContext: CodeContext,  user: User, privateAccounts: List[BankAccount], privateViewsUserCanAccess : List[View]) ={
-      successJsonResponse(coreBankAccountListToJson(callerContext, codeContext,  user: User, privateAccounts, privateViewsUserCanAccess))
+    def corePrivateAccountsAtOneBankResult (callerContext: CallerContext, codeContext: CodeContext,  user: User, privateAccounts: List[BankAccount], privateViewsUserCanAccess : List[View], callContext: Option[CallContext]) ={
+      successJsonResponse(coreBankAccountListToJson(callerContext, codeContext,  user: User, privateAccounts, privateViewsUserCanAccess, callContext))
     }
 
     resourceDocs += ResourceDoc(
@@ -320,40 +323,40 @@ trait APIMethods200 {
     lazy val corePrivateAccountsAtOneBank : OBPEndpoint = {
       // get private accounts for a single bank
       case "my" :: "banks" :: BankId(bankId) :: "accounts" ::  Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
             (privateViewsUserCanAccessAtOneBank, privateAccountAccess) = Views.views.vend.privateViewsUserCanAccessAtBank(u, bankId)
             (privateAccountsForOneBank, callContext) <- bank.privateAccountsFuture(privateAccountAccess, callContext)
           } yield {
-            val result = corePrivateAccountsAtOneBankResult(CallerContext(corePrivateAccountsAtOneBank), codeContext, u, privateAccountsForOneBank, privateViewsUserCanAccessAtOneBank)
+            val result = corePrivateAccountsAtOneBankResult(CallerContext(corePrivateAccountsAtOneBank), codeContext, u, privateAccountsForOneBank, privateViewsUserCanAccessAtOneBank, callContext)
             (result, HttpCode.`200`(callContext))
           }
       }
       // Also we support accounts/private to maintain compatibility with 1.4.0
       case "my" :: "banks" :: BankId(bankId) :: "accounts" :: "private" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
             (privateViewsUserCanAccessAtOneBank, privateAccountAccess) = Views.views.vend.privateViewsUserCanAccessAtBank(u, bankId)
             (privateAccountsForOneBank, callContext) <- bank.privateAccountsFuture(privateAccountAccess, callContext)
           } yield {
-           val result = corePrivateAccountsAtOneBankResult(CallerContext(corePrivateAccountsAtOneBank), codeContext, u, privateAccountsForOneBank, privateViewsUserCanAccessAtOneBank)
+           val result = corePrivateAccountsAtOneBankResult(CallerContext(corePrivateAccountsAtOneBank), codeContext, u, privateAccountsForOneBank, privateViewsUserCanAccessAtOneBank, callContext)
             (result, HttpCode.`200`(callContext))
           }
       }
       // Supports idea of default bank
       case "bank" :: "accounts" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (bank, callContext) <- NewStyle.function.getBank(BankId(defaultBankId), callContext)
             (privateViewsUserCanAccessAtOneBank, privateAccountAccess) = Views.views.vend.privateViewsUserCanAccessAtBank(u, BankId(defaultBankId))
             (availablePrivateAccounts, callContext) <- bank.privateAccountsFuture(privateAccountAccess, callContext)
           } yield {
-            val result = corePrivateAccountsAtOneBankResult(CallerContext(corePrivateAccountsAtOneBank), codeContext, u, availablePrivateAccounts, privateViewsUserCanAccessAtOneBank)
+            val result = corePrivateAccountsAtOneBankResult(CallerContext(corePrivateAccountsAtOneBank), codeContext, u, availablePrivateAccounts, privateViewsUserCanAccessAtOneBank, callContext)
             (result, HttpCode.`200`(callContext))
           }
       }
@@ -387,7 +390,7 @@ trait APIMethods200 {
     lazy val privateAccountsAtOneBank : OBPEndpoint = {
       //get private accounts for a single bank
       case "banks" :: BankId(bankId) :: "accounts" :: "private" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -424,7 +427,7 @@ trait APIMethods200 {
     lazy val publicAccountsAtOneBank : OBPEndpoint = {
       //get public accounts for a single bank
       case "banks" :: BankId(bankId) :: "accounts" :: "public" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (_, callContext) <- anonymousAccess(cc)
             (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -459,6 +462,7 @@ trait APIMethods200 {
     lazy val getKycDocuments  : OBPEndpoint = {
       case "customers" :: customerId :: "kyc_documents" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canGetAnyKycDocuments, callContext)
@@ -492,6 +496,7 @@ trait APIMethods200 {
     lazy val getKycMedia  : OBPEndpoint = {
       case "customers" :: customerId :: "kyc_media" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canGetAnyKycMedia, callContext)
@@ -525,6 +530,7 @@ trait APIMethods200 {
     lazy val getKycChecks  : OBPEndpoint = {
       case "customers" :: customerId :: "kyc_checks" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canGetAnyKycChecks, callContext)
@@ -557,6 +563,7 @@ trait APIMethods200 {
     lazy val getKycStatuses  : OBPEndpoint = {
       case "customers" :: customerId :: "kyc_statuses" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, ApiRole.canGetAnyKycStatuses, callContext)
@@ -583,7 +590,7 @@ trait APIMethods200 {
       emptyObjectJson,
       socialMediasJSON,
       List(UserNotLoggedIn, UserHasMissingRoles, CustomerNotFoundByCustomerId, UnknownError),
-      List(apiTagCustomer),
+      List(apiTagCustomer, apiTagOldStyle),
       Some(List(canGetSocialMediaHandles)))
 
     lazy val getSocialMediaHandles  : OBPEndpoint = {
@@ -627,6 +634,7 @@ trait APIMethods200 {
       case "banks" :: BankId(bankId) :: "customers" :: customerId :: "kyc_documents" :: documentId :: Nil JsonPut json -> _ => {
         // customerNumber is duplicated in postedData. remove from that?
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canAddKycDocument, callContext)
@@ -676,6 +684,7 @@ trait APIMethods200 {
       case "banks" :: BankId(bankId) :: "customers" :: customerId :: "kyc_media" :: mediaId :: Nil JsonPut json -> _ => {
         // customerNumber is in url and duplicated in postedData. remove from that?
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canAddKycMedia, callContext)
@@ -725,6 +734,7 @@ trait APIMethods200 {
       case "banks" :: BankId(bankId) :: "customers" :: customerId :: "kyc_check" :: checkId :: Nil JsonPut json -> _ => {
         // customerNumber is in url and duplicated in postedData. remove from that?
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canAddKycCheck, callContext)
@@ -775,6 +785,7 @@ trait APIMethods200 {
       case "banks" :: BankId(bankId) :: "customers" :: customerId :: "kyc_statuses" :: Nil JsonPut json -> _ => {
         // customerNumber is in url and duplicated in postedData. remove from that?
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement(bankId.value, u.userId, ApiRole.canAddKycStatus, callContext)
@@ -816,7 +827,7 @@ trait APIMethods200 {
         UserHasMissingRoles,
         CustomerNotFoundByCustomerId,
         UnknownError),
-      List(apiTagCustomer),
+      List(apiTagCustomer, apiTagOldStyle),
       Some(List(canAddSocialMediaHandle))
     )
 
@@ -870,7 +881,7 @@ trait APIMethods200 {
       emptyObjectJson,
       moderatedCoreAccountJSON,
       List(BankAccountNotFound,UnknownError),
-      apiTagAccount :: apiTagPsd2 ::  Nil)
+      apiTagAccount :: apiTagPsd2 :: apiTagOldStyle :: Nil)
 
     lazy val getCoreAccountById : OBPEndpoint = {
       //get account by id (assume owner view requested)
@@ -912,7 +923,7 @@ trait APIMethods200 {
       emptyObjectJson,
       coreTransactionsJSON,
       List(BankAccountNotFound, UnknownError),
-      List(apiTagTransaction, apiTagAccount, apiTagPsd2))
+      List(apiTagTransaction, apiTagAccount, apiTagPsd2, apiTagOldStyle))
     
     //Note: we already have the method: getTransactionsForBankAccount in V121.
     //The only difference here is "Core implies 'owner' view" 
@@ -964,7 +975,7 @@ trait APIMethods200 {
       emptyObjectJson,
       moderatedAccountJSON,
       List(BankNotFound,AccountNotFound,ViewNotFound, UserNoPermissionAccessView, UnknownError),
-      apiTagAccount ::  Nil)
+      apiTagAccount :: apiTagOldStyle :: Nil)
 
     lazy val accountById : OBPEndpoint = {
       //get account by id
@@ -1006,7 +1017,7 @@ trait APIMethods200 {
 
     lazy val getPermissionsForBankAccount : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "accounts" :: AccountId(accountId) :: "permissions" :: Nil JsonGet req => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
@@ -1043,7 +1054,7 @@ trait APIMethods200 {
       emptyObjectJson,
       viewsJSONV121,
       List(UserNotLoggedIn,BankNotFound, AccountNotFound,UnknownError),
-      List(apiTagView, apiTagAccount, apiTagUser))
+      List(apiTagView, apiTagAccount, apiTagUser, apiTagOldStyle))
 
     lazy val getPermissionForUserForBankAccount : OBPEndpoint = {
       //get access for specific user
@@ -1106,7 +1117,7 @@ trait APIMethods200 {
         InvalidAccountBalanceCurrency,
         UnknownError
       ),
-      List(apiTagAccount),
+      List(apiTagAccount, apiTagOldStyle),
       Some(List(canCreateAccount))
     )
 
@@ -1123,43 +1134,71 @@ trait APIMethods200 {
         cc =>{
 
           for {
-            loggedInUser <- cc.user ?~! ErrorMessages.UserNotLoggedIn
-            jsonBody <- tryo (json.extract[CreateAccountJSON]) ?~! ErrorMessages.InvalidJsonFormat
-            user_id <- tryo (if (jsonBody.user_id.nonEmpty) jsonBody.user_id else loggedInUser.userId) ?~! ErrorMessages.InvalidUserId
-            _ <- tryo(assert(isValidID(accountId.value)))?~! ErrorMessages.InvalidAccountIdFormat
-            _ <- tryo(assert(isValidID(bankId.value)))?~! ErrorMessages.InvalidBankIdFormat
-            postedOrLoggedInUser <- UserX.findByUserId(user_id) ?~! ErrorMessages.UserNotFoundById
-            (bank, callContext ) <- BankX(bankId, Some(cc)) ?~! s"Bank $bankId not found"
-            // User can create account for self or an account for another user if they have CanCreateAccount role
-            _ <- if (user_id == loggedInUser.userId) Full(Unit)
-                else NewStyle.function.ownEntitlement(bankId.value, loggedInUser.userId, canCreateAccount, callContext, s"User must either create account for self or have role $CanCreateAccount")
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            failMsg = s"$InvalidJsonFormat The Json body should be the $CreateAccountJSON "
+            createAccountJson <- NewStyle.function.tryons(failMsg, 400, callContext) {
+              json.extract[CreateAccountJSON]
+            }
 
-            initialBalanceAsString <- tryo (jsonBody.balance.amount) ?~! ErrorMessages.InvalidAccountBalanceAmount
-            accountType <- tryo(jsonBody.`type`) ?~! ErrorMessages.InvalidAccountType
-            accountLabel <- tryo(jsonBody.`type`) //?~! ErrorMessages.InvalidAccountLabel // TODO looks strange.
-            initialBalanceAsNumber <- tryo {BigDecimal(initialBalanceAsString)} ?~! ErrorMessages.InvalidAccountInitialBalance
-            _ <- booleanToBox(0 == initialBalanceAsNumber) ?~! s"Initial balance must be zero"
-            currency <- tryo (jsonBody.balance.currency) ?~! ErrorMessages.InvalidAccountBalanceCurrency
-            // TODO Since this is a PUT, we should replace the resource if it already exists but will need to check persmissions
-            _ <- booleanToBox(BankAccountX(bankId, accountId).isEmpty,
-              s"Account with id $accountId already exists at bank $bankId")
-            bankAccount <- Connector.connector.vend.createBankAccountLegacy(
-              bankId, accountId, accountType, 
-              accountLabel, currency, initialBalanceAsNumber, 
+            loggedInUserId = u.userId
+            userIdAccountOwner = if (createAccountJson.user_id.nonEmpty) createAccountJson.user_id else loggedInUserId
+            _ <- Helper.booleanToFuture(InvalidAccountIdFormat, cc = callContext) {
+              isValidID(accountId.value)
+            }
+            _ <- Helper.booleanToFuture(InvalidBankIdFormat, cc = callContext) {
+              isValidID(accountId.value)
+            }
+
+            (postedOrLoggedInUser, callContext) <- NewStyle.function.findByUserId(userIdAccountOwner, callContext)
+
+            // User can create account for self or an account for another user if they have CanCreateAccount role
+            _ <- Helper.booleanToFuture(InvalidAccountIdFormat, cc = callContext) {
+              isValidID(accountId.value)
+            }
+
+            _ <- if (userIdAccountOwner == loggedInUserId) Future.successful(Full(Unit))
+            else NewStyle.function.hasEntitlement(bankId.value, loggedInUserId, canCreateAccount, callContext, s"${UserHasMissingRoles} $canCreateAccount or create account for self")
+
+            initialBalanceAsString = createAccountJson.balance.amount
+            accountType = createAccountJson.`type`
+            accountLabel = createAccountJson.label
+            initialBalanceAsNumber <- NewStyle.function.tryons(InvalidAccountInitialBalance, 400, callContext) {
+              BigDecimal(initialBalanceAsString)
+            }
+
+            _ <- Helper.booleanToFuture(InitialBalanceMustBeZero, cc = callContext) {
+              0 == initialBalanceAsNumber
+            }
+
+            _ <- Helper.booleanToFuture(InvalidISOCurrencyCode, cc = callContext) {
+              isValidCurrencyISOCode(createAccountJson.balance.currency)
+            }
+
+
+            currency = createAccountJson.balance.currency
+
+            (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
+
+            (bankAccount, callContext) <- NewStyle.function.createBankAccount(
+              bankId,
+              accountId,
+              accountType,
+              accountLabel,
+              currency,
+              initialBalanceAsNumber,
               postedOrLoggedInUser.name,
-              "", //added new field in V220
-              List.empty
+              "",
+              List.empty,
+              callContext
             )
             //1 Create or Update the `Owner` for the new account
             //2 Add permission to the user
             //3 Set the user as the account holder
-            _ = BankAccountCreation.setAccountHolderAndRefreshUserAccountAccess(bankId, accountId, postedOrLoggedInUser, callContext)
+            _ <- BankAccountCreation.setAccountHolderAndRefreshUserAccountAccess(bankId, accountId, postedOrLoggedInUser, callContext)
             dataContext = DataContext(cc.user, Some(bankAccount.bankId), Some(bankAccount.accountId), Empty, Empty, Empty)
-            links = code.api.util.APIUtil.getHalLinks(CallerContext(createAccount), codeContext, dataContext)
-            json = JSONFactory200.createCoreAccountJSON(bankAccount, links)
-            
+            links = code.api.util.APIUtil.getHalLinks(CallerContext(createAccount), codeContext, dataContext, callContext)
           } yield {
-            successJsonResponse(Extraction.decompose(json))
+            (JSONFactory200.createCoreAccountJSON(bankAccount, links), HttpCode.`200`(callContext))
           }
         }
       }
@@ -1193,12 +1232,13 @@ trait APIMethods200 {
       emptyObjectJson,
       transactionTypesJsonV200,
       List(BankNotFound, UnknownError),
-      List(apiTagBank, apiTagPSD2AIS, apiTagPsd2)
+      List(apiTagBank, apiTagPSD2AIS, apiTagPsd2, apiTagOldStyle)
     )
 
     lazy val getTransactionTypes : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "transaction-types" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
             // Get Transaction Types from the active provider
             (_, callContext) <- getTransactionTypesIsPublic match {
@@ -1280,7 +1320,7 @@ trait APIMethods200 {
         TransactionDisabled,
         UnknownError
       ),
-      List(apiTagTransactionRequest, apiTagPsd2),
+      List(apiTagTransactionRequest, apiTagPsd2, apiTagOldStyle),
       Some(List(canCreateAnyTransactionRequest)))
 
     lazy val createTransactionRequest: OBPEndpoint = {
@@ -1355,7 +1395,7 @@ trait APIMethods200 {
         TransactionDisabled,
         UnknownError
       ),
-      List(apiTagTransactionRequest, apiTagPsd2))
+      List(apiTagTransactionRequest, apiTagPsd2, apiTagOldStyle))
 
     lazy val answerTransactionRequestChallenge: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "accounts" :: AccountId(accountId) :: ViewId(viewId) :: "transaction-request-types" ::
@@ -1443,7 +1483,7 @@ trait APIMethods200 {
       emptyObjectJson,
       transactionRequestWithChargesJson,
       List(UserNotLoggedIn, BankNotFound, AccountNotFound, UserNoPermissionAccessView, UnknownError),
-      List(apiTagTransactionRequest, apiTagPsd2))
+      List(apiTagTransactionRequest, apiTagPsd2, apiTagOldStyle))
 
     lazy val getTransactionRequests: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "accounts" :: AccountId(accountId) :: ViewId(viewId) :: "transaction-requests" :: Nil JsonGet _ => {
@@ -1492,7 +1532,7 @@ trait APIMethods200 {
       createUserJson,
       userJsonV200,
       List(UserNotLoggedIn, InvalidJsonFormat, InvalidStrongPasswordFormat ,"Error occurred during user creation.", "User with the same username already exists." , UnknownError),
-      List(apiTagUser, apiTagOnboarding))
+      List(apiTagUser, apiTagOnboarding, apiTagOldStyle))
 
     lazy val createUser: OBPEndpoint = {
       case "users" :: Nil JsonPost json -> _ => {
@@ -1737,7 +1777,7 @@ trait APIMethods200 {
         CreateUserCustomerLinksError,
         UnknownError
       ),
-      List(apiTagCustomer, apiTagPerson),
+      List(apiTagCustomer, apiTagPerson, apiTagOldStyle),
       Some(List(canCreateCustomer,canCreateUserCustomerLink)))
 
 
@@ -1811,7 +1851,7 @@ trait APIMethods200 {
       emptyObjectJson,
       userJsonV200,
       List(UserNotLoggedIn, UnknownError),
-      List(apiTagUser))
+      List(apiTagUser, apiTagOldStyle))
 
 
     lazy val getCurrentUser: OBPEndpoint = {
@@ -1845,7 +1885,7 @@ trait APIMethods200 {
       emptyObjectJson,
       usersJsonV200,
       List(UserNotLoggedIn, UserHasMissingRoles, UserNotFoundByEmail, UnknownError),
-      List(apiTagUser),
+      List(apiTagUser, apiTagOldStyle),
       Some(List(canGetAnyUser)))
 
 
@@ -1899,7 +1939,7 @@ trait APIMethods200 {
         CreateUserCustomerLinksError,
         UnknownError
       ),
-      List(apiTagCustomer, apiTagUser),
+      List(apiTagCustomer, apiTagUser, apiTagOldStyle),
       Some(List(canCreateUserCustomerLink,canCreateUserCustomerLinkAtAnyBank)))
 
     // TODO
@@ -1909,25 +1949,35 @@ trait APIMethods200 {
       case "banks" :: BankId(bankId):: "user_customer_links" :: Nil JsonPost json -> _ => {
         cc =>
           for {
-            u <- cc.user ?~! ErrorMessages.UserNotLoggedIn
-            _ <- tryo(assert(isValidID(bankId.value)))?~! ErrorMessages.InvalidBankIdFormat
-            (bank, callContext) <- BankX(bankId, Some(cc)) ?~! BankNotFound
-            postedData <- tryo{json.extract[CreateUserCustomerLinkJson]} ?~! ErrorMessages.InvalidJsonFormat
-            _ <- booleanToBox(postedData.user_id.nonEmpty) ?~! "Field user_id is not defined in the posted json!"
-            user <- UserX.findByUserId(postedData.user_id) ?~! ErrorMessages.UserNotFoundById
-            _ <- booleanToBox(postedData.customer_id.nonEmpty) ?~! "Field customer_id is not defined in the posted json!"
-            (customer, callContext) <- Connector.connector.vend.getCustomerByCustomerIdLegacy(postedData.customer_id, callContext) ?~! ErrorMessages.CustomerNotFoundByCustomerId
-            _ <- NewStyle.function.hasAllEntitlements(bankId.value, u.userId, createUserCustomerLinksEntitlementsRequiredForSpecificBank,
-                  createUserCustomerLinksEntitlementsRequiredForAnyBank, callContext)
-            _ <- booleanToBox(customer.bankId == bank.bankId.value, s"Bank of the customer specified by the CUSTOMER_ID(${customer.bankId}) has to matches BANK_ID(${bank.bankId.value}) in URL")
-            _ <- booleanToBox(UserCustomerLink.userCustomerLink.vend.getUserCustomerLink(postedData.user_id, postedData.customer_id).isEmpty == true) ?~! CustomerAlreadyExistsForUser
-            userCustomerLink <- UserCustomerLink.userCustomerLink.vend.createUserCustomerLink(postedData.user_id, postedData.customer_id, new Date(), true) ?~! CreateUserCustomerLinksError
-            _ <- Connector.connector.vend.UpdateUserAccoutViewsByUsername(user.name)
-            _ <- Full(AuthUser.refreshUser(user, callContext))
+            _ <- NewStyle.function.tryons(s"$InvalidBankIdFormat", 400, cc.callContext) {
+              assert(isValidID(bankId.value))
+            }
+            postedData <- NewStyle.function.tryons(s"$InvalidJsonFormat The Json body should be the $CreateUserCustomerLinkJson ", 400, cc.callContext) {
+              json.extract[CreateUserCustomerLinkJson]
+            }
+            user <- Users.users.vend.getUserByUserIdFuture(postedData.user_id) map {
+              x => unboxFullOrFail(x, cc.callContext, UserNotFoundByUserId, 404)
+            }
+            _ <- booleanToFuture("Field customer_id is not defined in the posted json!", 400, cc.callContext) {
+              postedData.customer_id.nonEmpty
+            }
+            (customer, callContext) <- NewStyle.function.getCustomerByCustomerId(postedData.customer_id, cc.callContext)
+            _ <- booleanToFuture(s"Bank of the customer specified by the CUSTOMER_ID(${customer.bankId}) has to matches BANK_ID(${bankId.value}) in URL", 400, callContext) {
+              customer.bankId == bankId.value
+            }
+            _ <- booleanToFuture(CustomerAlreadyExistsForUser, 400, callContext) {
+              UserCustomerLink.userCustomerLink.vend.getUserCustomerLink(postedData.user_id, postedData.customer_id).isEmpty == true
+            }
+            userCustomerLink <- Future {
+              UserCustomerLink.userCustomerLink.vend.createUserCustomerLink(postedData.user_id, postedData.customer_id, new Date(), true)
+            } map {
+              x => unboxFullOrFail(x, callContext, CreateUserCustomerLinksError, 400)
+            }
+            
+            _ <- AuthUser.refreshUser(user, callContext)
             
           } yield {
-            val successJson = Extraction.decompose(code.api.v2_0_0.JSONFactory200.createUserCustomerLinkJSON(userCustomerLink))
-            successJsonResponse(successJson, 201)
+            (JSONFactory200.createUserCustomerLinkJSON(userCustomerLink),HttpCode.`200`(callContext))
           }
       }
     }
@@ -1967,7 +2017,7 @@ trait APIMethods200 {
     lazy val addEntitlement : OBPEndpoint = {
       //add access for specific user to a list of views
       case "users" :: userId :: "entitlements" :: Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             (_, callContext) <- NewStyle.function.findByUserId(userId, callContext)
@@ -2016,7 +2066,7 @@ trait APIMethods200 {
       emptyObjectJson,
       entitlementJSONs,
       List(UserNotLoggedIn, UserHasMissingRoles, UnknownError),
-      List(apiTagRole, apiTagEntitlement, apiTagUser),
+      List(apiTagRole, apiTagEntitlement, apiTagUser, apiTagOldStyle),
       Some(List(canGetEntitlementsForAnyUserAtAnyBank)))
 
 
@@ -2066,7 +2116,7 @@ trait APIMethods200 {
 
     lazy val deleteEntitlement: OBPEndpoint = {
       case "users" :: userId :: "entitlement" :: entitlementId :: Nil JsonDelete _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
             for {
               (Full(u), callContext) <- authenticatedAccess(cc)
               _ <- NewStyle.function.hasEntitlement("", u.userId, canDeleteEntitlementAtAnyBank, cc.callContext)
@@ -2104,7 +2154,7 @@ trait APIMethods200 {
 
     lazy val getAllEntitlements: OBPEndpoint = {
       case "entitlements" :: Nil JsonGet _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
             (Full(u), callContext) <- authenticatedAccess(cc)
             _ <- NewStyle.function.hasEntitlement("", u.userId, canGetEntitlementsForAnyUserAtAnyBank,callContext)
@@ -2193,7 +2243,7 @@ trait APIMethods200 {
         emptyObjectJson,
         emptyObjectJson, //TODO what is output here?
         List(UserNotLoggedIn, BankNotFound, UserHasMissingRoles, UnknownError),
-        List(apiTagSearchWarehouse),
+        List(apiTagSearchWarehouse, apiTagOldStyle),
         Some(List(canSearchWarehouse)))
 
     val esw = new elasticsearchWarehouse
@@ -2279,7 +2329,7 @@ trait APIMethods200 {
         emptyObjectJson,
         emptyObjectJson,
         List(UserNotLoggedIn, UserHasMissingRoles, UnknownError),
-        List(apiTagMetric, apiTagApi),
+        List(apiTagMetric, apiTagApi, apiTagOldStyle),
         Some(List(canSearchMetrics)))
 
     val esm = new elasticsearchMetrics
@@ -2309,7 +2359,7 @@ trait APIMethods200 {
       emptyObjectJson,
       customersJsonV140,
       List(UserNotLoggedIn, UserCustomerLinksNotFoundForUser, UnknownError),
-      List(apiTagPerson, apiTagCustomer))
+      List(apiTagPerson, apiTagCustomer, apiTagOldStyle))
 
     lazy val getCustomers : OBPEndpoint = {
       case "users" :: "current" :: "customers" :: Nil JsonGet _ => {

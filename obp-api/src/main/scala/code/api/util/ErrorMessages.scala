@@ -3,10 +3,12 @@ package code.api.util
 import java.util.Objects
 import java.util.regex.Pattern
 
+import code.api.APIFailureNewStyle
 import com.openbankproject.commons.model.enums.TransactionRequestStatus._
 import code.api.Constant._
 import code.api.util.ApiRole.{CanCreateAnyTransactionRequest, canCreateEntitlementAtAnyBank, canCreateEntitlementAtOneBank}
 import code.views.system.ViewDefinition
+import net.liftweb.json.{Extraction, JsonAST}
 import net.liftweb.util.StringHelpers
 
 object ErrorMessages {
@@ -20,6 +22,15 @@ object ErrorMessages {
   // 6) Any messaage defined here should be considered "fair game" to return over the API. Thus:
   // 7) Since the existance of "OBP-..." in a message is used to determine if we should display to a user if display_internal_errors=false, do *not* concatenate internal or core banking system error messages to these strings.
 
+
+  def apiFailureToString(code: Int, message: String, context: Option[CallContext]): String = JsonAST.compactRender(
+    Extraction.decompose(
+      APIFailureNewStyle(failMsg = message, failCode = code, context.map(_.toLight))
+    )
+  )
+  def apiFailureToString(code: Int, message: String, context: CallContext): String =
+    apiFailureToString(code, message, Some(context))
+  
   // Infrastructure / config level messages (OBP-00XXX)
   val HostnameNotSpecified = "OBP-00001: Hostname not specified. Could not get hostname from Props. Please edit your props file. Here are some example settings: hostname=http://127.0.0.1:8080 or hostname=https://www.example.com"
   val DataImportDisabled  = "OBP-00002: Data import is disabled for this API instance."
@@ -41,6 +52,10 @@ object ErrorMessages {
   val NoValidElasticsearchIndicesConfigured = "OBP-00011: No elasticsearch indices are allowed on this instance. Please set es.warehouse.allowed.indices = index1,index2 (or = ALL for all). "
   val CustomerFirehoseNotAllowedOnThisInstance = "OBP-00012: Customer firehose is not allowed on this instance. Please set allow_customer_firehose = true in props files. "
 
+  // Exceptions (OBP-01XXX) ------------------------------------------------>
+  val requestTimeout = "OBP-01000: Request Timeout. The OBP API decided to return a timeout. This is probably because a backend service did not respond in time. "
+  // <------------------------------------------------ Exceptions (OBP-01XXX)
+  
   // WebUiProps Exceptions (OBP-08XXX)
   val InvalidWebUiProps = "OBP-08001: Incorrect format of name."
   val WebUiPropsNotFound = "OBP-08002: WebUi props not found. Please specify a valid value for WEB_UI_PROPS_ID."
@@ -99,6 +114,7 @@ object ErrorMessages {
   val InvalidJsonValue = "OBP-10035: Incorrect json value."
   val InvalidHttpMethod = "OBP-10037: Incorrect http_method."
   val InvalidHttpProtocol = "OBP-10038: Incorrect http_protocol."
+  val ServiceIsTooBusy = "OBP-10040: The Service is too busy, please try it later."
   
   // General Sort and Paging
   val FilterSortDirectionError = "OBP-10023: obp_sort_direction parameter can only take two values: DESC or ASC!" // was OBP-20023
