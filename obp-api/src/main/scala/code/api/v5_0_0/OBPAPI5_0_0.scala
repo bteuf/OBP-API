@@ -69,7 +69,7 @@ object OBPAPI5_0_0 extends OBPRestHelper
 
   // Possible Endpoints from 5.0.0, exclude one endpoint use - method,exclude multiple endpoints use -- method,
   // e.g getEndpoints(Implementations5_0_0) -- List(Implementations5_0_0.genericEndpoint, Implementations5_0_0.root)
-  val endpointsOf5_0_0 = getEndpoints(Implementations5_0_0)
+  lazy val endpointsOf5_0_0 = getEndpoints(Implementations5_0_0)
 
   // if old version ResourceDoc objects have the same name endpoint with new version, omit old version ResourceDoc.
   def allResourceDocs = collectResourceDocs(
@@ -81,8 +81,7 @@ object OBPAPI5_0_0 extends OBPRestHelper
   private val endpoints: List[OBPEndpoint] = OBPAPI4_0_0.routes ++ endpointsOf5_0_0
 
   // Filter the possible endpoints by the disabled / enabled Props settings and add them together
-  val routes : List[OBPEndpoint] = Implementations4_0_0.root(version, versionStatus) :: // For now we make this mandatory 
-    getAllowedEndpoints(endpoints, allResourceDocs)
+  val routes : List[OBPEndpoint] = getAllowedEndpoints(endpoints, allResourceDocs)
 
   // register v5.0.0 apis first, Make them available for use!
   registerRoutes(routes, allResourceDocs, apiPrefix, true)

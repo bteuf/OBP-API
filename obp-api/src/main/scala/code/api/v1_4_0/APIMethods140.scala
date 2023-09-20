@@ -5,6 +5,8 @@ import code.api.util.ApiTag._
 import code.api.util.FutureUtil.EndpointContext
 import code.api.util.NewStyle.HttpCode
 import code.api.util._
+import code.api.v1_2_1.JSONFactory
+import code.api.v1_3_0.OBPAPI1_3_0
 import code.api.v1_4_0.JSONFactory1_4_0._
 import code.api.v2_0_0.CreateCustomerJson
 import code.atms.Atms
@@ -62,6 +64,36 @@ trait APIMethods140 extends MdcLoggable with APIMethods130 with APIMethods121{
     val apiVersion = ApiVersion.v1_4_0 // was noV i.e.  "1_4_0"
     val apiVersionStatus : String = "STABLE"
 
+
+    resourceDocs += ResourceDoc(
+      root,
+      apiVersion,
+      "root",
+      "GET",
+      "/root",
+      "Get API Info (root)",
+      """Returns information about:
+        |
+        |* API version
+        |* Hosted by information
+        |* Git Commit""",
+      emptyObjectJson,
+      apiInfoJSON,
+      List(UnknownError, "no connector set"),
+      apiTagApi :: Nil)
+
+    lazy val root : OBPEndpoint = {
+      case (Nil | "root" :: Nil) JsonGet _ => {
+        cc =>
+          implicit val ec = EndpointContext(Some(cc))
+          for {
+            _ <- Future() // Just start async call
+          } yield {
+            (JSONFactory.getApiInfoJSON(OBPAPI1_4_0.version, OBPAPI1_4_0.versionStatus), HttpCode.`200`(cc.callContext))
+          }
+      }
+    }
+
     resourceDocs += ResourceDoc(
       getCustomer,
       apiVersion,
@@ -110,20 +142,21 @@ trait APIMethods140 extends MdcLoggable with APIMethods130 with APIMethods121{
       emptyObjectJson,
       customerMessagesJson,
       List(UserNotLoggedIn, UnknownError),
-      List(apiTagMessage, apiTagCustomer, apiTagOldStyle))
+      List(apiTagMessage, apiTagCustomer))
 
     lazy val getCustomersMessages  : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "customer" :: "messages" :: Nil JsonGet _ => {
-        cc =>{
+        cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
-            u <- cc.user ?~! ErrorMessages.UserNotLoggedIn
-            (bank, callContext ) <- BankX(bankId, Some(cc)) ?~! {ErrorMessages.BankNotFound}
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            (_, callContext) <- NewStyle.function.getBank(bankId, callContext)
             //au <- ResourceUser.find(By(ResourceUser.id, u.apiId))
             //role <- au.isCustomerMessageAdmin ~> APIFailure("User does not have sufficient permissions", 401)
           } yield {
             val messages = CustomerMessages.customerMessageProvider.vend.getMessages(u, bankId)
             val json = JSONFactory1_4_0.createCustomerMessagesJson(messages)
-            successJsonResponse(Extraction.decompose(json))
+            (json, HttpCode.`200`(callContext))
           }
         }
       }
@@ -349,24 +382,22 @@ trait APIMethods140 extends MdcLoggable with APIMethods130 with APIMethods121{
         BankNotFound,
         "No CRM Events available.",
         UnknownError),
-      List(apiTagCustomer, apiTagOldStyle)
+      List(apiTagCustomer)
     )
 
     // TODO Require Role
 
     lazy val getCrmEvents : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "crm-events" :: Nil JsonGet _ => {
-        cc =>{
+        cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
-            // Get crm events from the active provider
-            _ <- cc.user ?~! UserNotLoggedIn
-            (bank, callContext ) <- BankX(bankId, Some(cc)) ?~! {ErrorMessages.BankNotFound}
-            crmEvents <- Box(CrmEvent.crmEventProvider.vend.getCrmEvents(bankId)) ~> APIFailure("No CRM Events available.", 204)
+            (_, callContext) <- authenticatedAccess(cc)
+            (bank, callContext ) <- NewStyle.function.getBank(bankId, callContext)
+            crmEvents <- NewStyle.function.getCrmEvents(bank.bankId, callContext)
           } yield {
-            // Format the data as json
             val json = JSONFactory1_4_0.createCrmEventsJson(crmEvents)
-            // Return
-            successJsonResponse(Extraction.decompose(json))
+            (json, HttpCode.`200`(callContext))
           }
         }
       }

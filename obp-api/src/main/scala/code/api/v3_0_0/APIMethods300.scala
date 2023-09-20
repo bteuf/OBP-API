@@ -16,7 +16,7 @@ import code.api.util.FutureUtil.EndpointContext
 import code.api.util.NewStyle.HttpCode
 import code.api.util._
 import code.api.v1_2_1.JSONFactory
-import code.api.v2_0_0.JSONFactory200
+import code.api.v2_0_0.{JSONFactory200, OBPAPI2_0_0}
 import code.api.v3_0_0.JSONFactory300._
 import code.bankconnectors._
 import code.consumer.Consumers
@@ -27,7 +27,7 @@ import code.scope.Scope
 import code.search.elasticsearchWarehouse
 import code.users.Users
 import code.util.Helper
-import code.util.Helper.{booleanToBox, booleanToFuture}
+import code.util.Helper.{ObpS, booleanToBox, booleanToFuture}
 import code.views.Views
 import code.views.system.ViewDefinition
 import com.github.dwickern.macros.NameOf.nameOf
@@ -66,6 +66,37 @@ trait APIMethods300 {
     val apiRelations = ArrayBuffer[ApiRelation]()
     val codeContext = CodeContext(resourceDocs, apiRelations)
 
+
+    
+    resourceDocs += ResourceDoc(
+      root,
+      implementedInApiVersion,
+      "root",
+      "GET",
+      "/root",
+      "Get API Info (root)",
+      """Returns information about:
+        |
+        |* API version
+        |* Hosted by information
+        |* Git Commit""",
+      emptyObjectJson,
+      apiInfoJSON,
+      List(UnknownError, "no connector set"),
+      apiTagApi :: Nil)
+
+    lazy val root : OBPEndpoint = {
+      case (Nil | "root" :: Nil) JsonGet _ => {
+        cc =>
+          implicit val ec = EndpointContext(Some(cc))
+          for {
+            _ <- Future() // Just start async call
+          } yield {
+            (JSONFactory.getApiInfoJSON(OBPAPI3_0_0.version, OBPAPI3_0_0.versionStatus), HttpCode.`200`(cc.callContext))
+          }
+      }
+    }
+    
     resourceDocs += ResourceDoc(
       getViewsForBankAccount,
       implementedInApiVersion,
@@ -1084,24 +1115,32 @@ trait APIMethods300 {
         InsufficientAuthorisationToCreateBranch,
         UnknownError
       ),
-      List(apiTagBranch, apiTagOldStyle),
+      List(apiTagBranch),
       Some(List(canCreateBranch, canCreateBranchAtAnyBank))
     )
 
     lazy val createBranch: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "branches" ::  Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
-            u <- cc.user ?~!ErrorMessages.UserNotLoggedIn
-            (bank, _) <- BankX(bankId, Some(cc)) ?~! BankNotFound
-            _ <- NewStyle.function.hasAllEntitlements(bank.bankId.value, u.userId, canCreateBranch::Nil, canCreateBranchAtAnyBank::Nil, cc.callContext)
-            branchJsonV300 <- tryo {json.extract[BranchJsonV300]} ?~! {ErrorMessages.InvalidJsonFormat + " BranchJsonV300"}
-            _ <- booleanToBox(branchJsonV300.bank_id == bank.bankId.value, "BANK_ID has to be the same in the URL and Body")
-            branch <- transformToBranchFromV300(branchJsonV300) ?~! {ErrorMessages.CouldNotTransformJsonToInternalModel + " Branch"}
-            success: BranchT <- Connector.connector.vend.createOrUpdateBranch(branch) ?~! {ErrorMessages.CountNotSaveOrUpdateResource + " Branch"}
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
+            _ <- Future(
+              NewStyle.function.hasAllEntitlements(bank.bankId.value, u.userId, canCreateBranch::Nil, canCreateBranchAtAnyBank::Nil, cc.callContext)
+            )
+            branchJsonV300 <- NewStyle.function.tryons(failMsg = InvalidJsonFormat + " BranchJsonV300", 400, callContext) {
+              json.extract[BranchJsonV300]
+            }
+            _ <- Helper.booleanToFuture(failMsg = "BANK_ID has to be the same in the URL and Body", 400, callContext) {
+              branchJsonV300.bank_id == bank.bankId.value
+            }
+            branch <- NewStyle.function.tryons(CouldNotTransformJsonToInternalModel + " Branch", 400, cc.callContext) {
+              transformToBranch(branchJsonV300)
+            }
+            success: BranchT <- NewStyle.function.createOrUpdateBranch(branch, callContext)
           } yield {
             val json = JSONFactory300.createBranchJsonV300(success)
-            createdJsonResponse(Extraction.decompose(json), 201)
+            (json, HttpCode.`201`(callContext))
           }
       }
     }
@@ -1330,12 +1369,12 @@ trait APIMethods300 {
       case "banks" :: BankId(bankId) :: "branches" :: Nil JsonGet _ => {
         cc => {
           implicit val ec = EndpointContext(Some(cc))
-          val limit = S.param("limit")
-          val offset = S.param("offset")
-          val city = S.param("city")
-          val withinMetersOf = S.param("withinMetersOf")
-          val nearLatitude = S.param("nearLatitude")
-          val nearLongitude = S.param("nearLongitude")
+          val limit = ObpS.param("limit")
+          val offset = ObpS.param("offset")
+          val city = ObpS.param("city")
+          val withinMetersOf = ObpS.param("withinMetersOf")
+          val nearLatitude = ObpS.param("nearLatitude")
+          val nearLongitude = ObpS.param("nearLongitude")
           for {
             (_, callContext) <- getBranchesIsPublic match {
                 case false => authenticatedAccess(cc)
@@ -1463,8 +1502,8 @@ trait APIMethods300 {
       case "banks" :: BankId(bankId) :: "atms" :: Nil JsonGet req => {
         cc => {
           implicit val ec = EndpointContext(Some(cc))
-          val limit = S.param("limit")
-          val offset = S.param("offset")
+          val limit = ObpS.param("limit")
+          val offset = ObpS.param("offset")
           for {
             (_, callContext) <- getAtmsIsPublic match {
                 case false => authenticatedAccess(cc)

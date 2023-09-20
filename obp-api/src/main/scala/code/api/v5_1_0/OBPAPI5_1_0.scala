@@ -70,7 +70,7 @@ object OBPAPI5_1_0 extends OBPRestHelper
 
   // Possible Endpoints from 5.1.0, exclude one endpoint use - method,exclude multiple endpoints use -- method,
   // e.g getEndpoints(Implementations5_0_0) -- List(Implementations5_0_0.genericEndpoint, Implementations5_0_0.root)
-  val endpointsOf5_1_0 = getEndpoints(Implementations5_1_0)
+  lazy val endpointsOf5_1_0 = getEndpoints(Implementations5_1_0)
 
   lazy val bugEndpoints = // these endpoints miss Provider parameter in the URL, we introduce new ones in V510.
     nameOf(Implementations3_0_0.getUserByUsername) :: 
@@ -89,7 +89,7 @@ object OBPAPI5_1_0 extends OBPRestHelper
   private val endpoints: List[OBPEndpoint] = OBPAPI5_0_0.routes ++ endpointsOf5_1_0
 
   // Filter the possible endpoints by the disabled / enabled Props settings and add them together
-  val routes : List[OBPEndpoint] = Implementations5_1_0.root(version, versionStatus) :: // For now we make this mandatory 
+  val routes : List[OBPEndpoint] = Implementations5_1_0.root :: // For now we make this mandatory 
     getAllowedEndpoints(endpoints, allResourceDocs)
 
   // register v5.1.0 apis first, Make them available for use!

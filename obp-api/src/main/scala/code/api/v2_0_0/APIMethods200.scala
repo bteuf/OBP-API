@@ -15,6 +15,7 @@ import code.api.util.NewStyle.HttpCode
 import code.api.util._
 import code.api.v1_2_1.OBPAPI1_2_1._
 import code.api.v1_2_1.{JSONFactory => JSONFactory121}
+import code.api.v1_3_0.OBPAPI1_3_0
 import code.api.v1_4_0.JSONFactory1_4_0
 import code.api.v1_4_0.JSONFactory1_4_0.ChallengeAnswerJSON
 import code.api.v2_0_0.JSONFactory200.{privateBankAccountsListToJson, _}
@@ -134,6 +135,35 @@ trait APIMethods200 {
 
 
 
+    resourceDocs += ResourceDoc(
+      root,
+      apiVersion,
+      "root",
+      "GET",
+      "/root",
+      "Get API Info (root)",
+      """Returns information about:
+        |
+        |* API version
+        |* Hosted by information
+        |* Git Commit""",
+      emptyObjectJson,
+      apiInfoJSON,
+      List(UnknownError, "no connector set"),
+      apiTagApi :: Nil)
+
+    lazy val root : OBPEndpoint = {
+      case (Nil | "root" :: Nil) JsonGet _ => {
+        cc =>
+          implicit val ec = EndpointContext(Some(cc))
+          for {
+            _ <- Future() // Just start async call
+          } yield {
+            (JSONFactory121.getApiInfoJSON(OBPAPI2_0_0.version, OBPAPI2_0_0.versionStatus), HttpCode.`200`(cc.callContext))
+          }
+      }
+    }
+    
 
 
     resourceDocs += ResourceDoc(
@@ -590,21 +620,22 @@ trait APIMethods200 {
       emptyObjectJson,
       socialMediasJSON,
       List(UserNotLoggedIn, UserHasMissingRoles, CustomerNotFoundByCustomerId, UnknownError),
-      List(apiTagCustomer, apiTagOldStyle),
+      List(apiTagCustomer),
       Some(List(canGetSocialMediaHandles)))
 
     lazy val getSocialMediaHandles  : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "customers" :: customerId :: "social_media_handles" :: Nil JsonGet _ => {
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
-            u <- cc.user ?~! ErrorMessages.UserNotLoggedIn
-            (bank, callContext) <- BankX(bankId, Some(cc)) ?~! BankNotFound
-            _ <- NewStyle.function.ownEntitlement(bank.bankId.value, u.userId, canGetSocialMediaHandles, cc.callContext)
-            customer <- CustomerX.customerProvider.vend.getCustomerByCustomerId(customerId) ?~! ErrorMessages.CustomerNotFoundByCustomerId
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            (bank, callContext ) <- NewStyle.function.getBank(bankId, callContext)
+            _ <- NewStyle.function.hasEntitlement(bank.bankId.value, u.userId, canGetSocialMediaHandles, callContext)
+            (customer, callContext) <- NewStyle.function.getCustomerByCustomerId(customerId, callContext)
           } yield {
             val kycSocialMedias = SocialMediaHandle.socialMediaHandleProvider.vend.getSocialMedias(customer.number)
             val json = JSONFactory200.createSocialMediasJSON(kycSocialMedias)
-            successJsonResponse(Extraction.decompose(json))
+            (json, HttpCode.`200`(callContext))
           }
         }
       }
@@ -827,7 +858,7 @@ trait APIMethods200 {
         UserHasMissingRoles,
         CustomerNotFoundByCustomerId,
         UnknownError),
-      List(apiTagCustomer, apiTagOldStyle),
+      List(apiTagCustomer),
       Some(List(canAddSocialMediaHandle))
     )
 
@@ -835,23 +866,29 @@ trait APIMethods200 {
       case "banks" :: BankId(bankId) :: "customers" :: customerId :: "social_media_handles" :: Nil JsonPost json -> _ => {
         // customerNumber is in url and duplicated in postedData. remove from that?
         cc => {
+          implicit val ec = EndpointContext(Some(cc))
           for {
-            u <- cc.user ?~! ErrorMessages.UserNotLoggedIn
-            postedData <- tryo{json.extract[SocialMediaJSON]} ?~! ErrorMessages.InvalidJsonFormat
-            _ <- tryo(assert(isValidID(bankId.value)))?~! ErrorMessages.InvalidBankIdFormat
-            (bank, callContext) <- BankX(bankId, Some(cc)) ?~! BankNotFound
-            _ <- NewStyle.function.ownEntitlement(bank.bankId.value, u.userId, canAddSocialMediaHandle, cc.callContext)
-            _ <- CustomerX.customerProvider.vend.getCustomerByCustomerId(customerId) ?~! ErrorMessages.CustomerNotFoundByCustomerId
-            _ <- booleanToBox(
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            postedData <- NewStyle.function.tryons(ErrorMessages.InvalidJsonFormat, 400, callContext) {
+              json.extract[SocialMediaJSON]
+            }
+            _ <- Helper.booleanToFuture(ErrorMessages.InvalidBankIdFormat, 400, callContext){
+              isValidID(bankId.value)
+            }
+            (bank, callContext) <- NewStyle.function.getBank(bankId, callContext)
+            _ <- NewStyle.function.hasEntitlement(bank.bankId.value, u.userId, canAddSocialMediaHandle, cc.callContext)
+            (_, callContext) <- NewStyle.function.getCustomerByCustomerId(customerId, callContext)
+            _ <- Helper.booleanToFuture("Server error: could not add", 400, callContext){
               SocialMediaHandle.socialMediaHandleProvider.vend.addSocialMedias(
                 postedData.customer_number,
                 postedData.`type`,
                 postedData.handle,
                 postedData.date_added,
-                postedData.date_activated),
-              "Server error: could not add")
+                postedData.date_activated
+              )
+            }
           } yield {
-            successJsonResponse(Extraction.decompose(successMessage), 201)
+            (successMessage, HttpCode.`201`(callContext))
           }
         }
       }
@@ -1232,7 +1269,7 @@ trait APIMethods200 {
       emptyObjectJson,
       transactionTypesJsonV200,
       List(BankNotFound, UnknownError),
-      List(apiTagBank, apiTagPSD2AIS, apiTagPsd2, apiTagOldStyle)
+      List(apiTagBank, apiTagPSD2AIS, apiTagPsd2)
     )
 
     lazy val getTransactionTypes : OBPEndpoint = {
@@ -1532,41 +1569,43 @@ trait APIMethods200 {
       createUserJson,
       userJsonV200,
       List(UserNotLoggedIn, InvalidJsonFormat, InvalidStrongPasswordFormat ,"Error occurred during user creation.", "User with the same username already exists." , UnknownError),
-      List(apiTagUser, apiTagOnboarding, apiTagOldStyle))
+      List(apiTagUser, apiTagOnboarding))
 
     lazy val createUser: OBPEndpoint = {
       case "users" :: Nil JsonPost json -> _ => {
-        cc =>
+        cc => implicit val ec = EndpointContext(Some(cc))
           for {
-            postedData <- tryo {json.extract[CreateUserJson]} ?~! ErrorMessages.InvalidJsonFormat
-            _ <- tryo(assert(fullPasswordValidation(postedData.password))) ?~! ErrorMessages.InvalidStrongPasswordFormat
-          } yield {
-            if (AuthUser.find(By(AuthUser.username, postedData.username)).isEmpty) {
-              val userCreated = AuthUser.create
+            postedData <- NewStyle.function.tryons(ErrorMessages.InvalidJsonFormat, 400, cc.callContext) {
+              json.extract[CreateUserJson]
+            }
+            _ <- Helper.booleanToFuture(ErrorMessages.InvalidStrongPasswordFormat, 400, cc.callContext) {
+              fullPasswordValidation(postedData.password)
+            }
+            _ <- Helper.booleanToFuture("User with the same username already exists.", 409, cc.callContext) {
+              AuthUser.find(By(AuthUser.username, postedData.username)).isEmpty
+            }
+            userCreated <- Future {
+              AuthUser.create
                 .firstName(postedData.first_name)
                 .lastName(postedData.last_name)
                 .username(postedData.username)
                 .email(postedData.email)
                 .password(postedData.password)
                 .validated(APIUtil.getPropsAsBoolValue("user_account_validated", false))
-              if(userCreated.validate.size > 0){
-                Full(errorJsonResponse(userCreated.validate.map(_.msg).mkString(";")))
-              }
-              else
-              {
-                userCreated.saveMe()
-                if (userCreated.saved_?) {
-                  AuthUser.grantDefaultEntitlementsToAuthUser(userCreated)
-                  val json = JSONFactory200.createUserJSONfromAuthUser(userCreated)
-                  successJsonResponse(Extraction.decompose(json), 201)
-                }
-                else
-                  Full(errorJsonResponse("Error occurred during user creation."))
-              }
             }
-            else {
-              Full(errorJsonResponse("User with the same username already exists.", 409))
+            _ <- Helper.booleanToFuture(userCreated.validate.map(_.msg).mkString(";"), 400, cc.callContext) {
+              userCreated.validate.size == 0
             }
+            savedUser <- NewStyle.function.tryons(ErrorMessages.InvalidJsonFormat, 400, cc.callContext) {
+              userCreated.saveMe()
+            }
+            _ <- Helper.booleanToFuture("Error occurred during user creation.", 400, cc.callContext) {
+              userCreated.saved_?
+            }
+          } yield {
+            AuthUser.grantDefaultEntitlementsToAuthUser(savedUser)
+            val json = JSONFactory200.createUserJSONfromAuthUser(userCreated)
+            (json, HttpCode.`201`(cc.callContext))
           }
       }
     }

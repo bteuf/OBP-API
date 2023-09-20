@@ -27,6 +27,7 @@ import code.transactionrequests.TransactionRequests.TransactionRequestTypes.{app
 import code.userlocks.UserLocksProvider
 import code.users.Users
 import code.util.Helper
+import code.util.Helper.ObpS
 import code.views.Views
 import code.views.system.{AccountAccess, ViewDefinition}
 import com.github.dwickern.macros.NameOf.nameOf
@@ -65,7 +66,7 @@ trait APIMethods510 {
 
 
     staticResourceDocs += ResourceDoc(
-      root(OBPAPI5_1_0.version, OBPAPI5_1_0.versionStatus),
+      root,
       implementedInApiVersion,
       "root",
       "GET",
@@ -83,13 +84,13 @@ trait APIMethods510 {
       List(UnknownError, "no connector set"),
       apiTagApi  :: Nil)
 
-    def root (apiVersion : ApiVersion, apiVersionStatus: String) : OBPEndpoint = {
+    lazy val root: OBPEndpoint = {
       case (Nil | "root" :: Nil) JsonGet _ => {
         cc => implicit val ec = EndpointContext(Some(cc))
           for {
             _ <- Future() // Just start async call
           } yield {
-            (JSONFactory510.getApiInfoJSON(apiVersion,apiVersionStatus), HttpCode.`200`(cc.callContext))
+            (JSONFactory510.getApiInfoJSON(OBPAPI5_1_0.version,OBPAPI5_1_0.versionStatus), HttpCode.`200`(cc.callContext))
           }
       }
     }
@@ -1394,8 +1395,8 @@ trait APIMethods510 {
     lazy val getAtms: OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: Nil JsonGet _ => {
         cc => implicit val ec = EndpointContext(Some(cc))
-          val limit = S.param("limit")
-          val offset = S.param("offset")
+          val limit = ObpS.param("limit")
+          val offset = ObpS.param("offset")
           for {
             (_, callContext) <- getAtmsIsPublic match {
               case false => authenticatedAccess(cc)

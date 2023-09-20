@@ -51,7 +51,7 @@ object OBPAPI4_0_0 extends OBPRestHelper with APIMethods130 with APIMethods140 w
 
   val version : ApiVersion = ApiVersion.v4_0_0
 
-  val versionStatus = ApiVersionStatus.STABLE.toString
+  lazy val versionStatus = ApiVersionStatus.STABLE.toString
 
   // Possible Endpoints from 4.0.0, exclude one endpoint use - method,exclude multiple endpoints use -- method,
   // e.g getEndpoints(Implementations4_0_0) -- List(Implementations4_0_0.genericEndpoint, Implementations4_0_0.root)
@@ -75,7 +75,7 @@ object OBPAPI4_0_0 extends OBPRestHelper with APIMethods130 with APIMethods140 w
   private val endpoints: List[OBPEndpoint] = OBPAPI3_1_0.routes ++ endpointsOf4_0_0
 
   // Filter the possible endpoints by the disabled / enabled Props settings and add them together
-  val routes : List[OBPEndpoint] = Implementations4_0_0.root(version, versionStatus) :: // For now we make this mandatory
+  val routes : List[OBPEndpoint] = Implementations4_0_0.root :: // For now we make this mandatory
       getAllowedEndpoints(endpoints, allResourceDocs)
 
   // register v4.0.0 apis first, Make them available for use!

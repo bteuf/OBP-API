@@ -4,7 +4,6 @@ import java.net.URLEncoder
 import java.text.SimpleDateFormat
 import java.util
 import java.util.{Calendar, Date}
-
 import code.DynamicData.{DynamicData, DynamicDataProvider}
 import code.DynamicEndpoint.DynamicEndpointSwagger
 import code.accountattribute.AccountAttributeX
@@ -44,7 +43,7 @@ import code.api.v4_0_0.JSONFactory400._
 import code.api.dynamic.endpoint.helper._
 import code.api.dynamic.endpoint.helper.practise.PractiseEndpoint
 import code.api.dynamic.entity.helper.{DynamicEntityHelper, DynamicEntityInfo}
-import code.api.util.FutureUtil.{EndpointContext}
+import code.api.util.FutureUtil.EndpointContext
 import code.api.v5_0_0.OBPAPI5_0_0
 import code.api.{ChargePolicy, Constant, JsonResponseException}
 import code.apicollection.MappedApiCollectionsProvider
@@ -73,7 +72,7 @@ import code.transactionrequests.TransactionRequests.TransactionRequestTypes.{app
 import code.usercustomerlinks.UserCustomerLink
 import code.userlocks.UserLocksProvider
 import code.users.Users
-import code.util.Helper.booleanToFuture
+import code.util.Helper.{ObpS, booleanToFuture}
 import code.util.{Helper, JsonSchemaUtil}
 import code.validation.JsonValidation
 import code.views.Views
@@ -2648,42 +2647,11 @@ trait APIMethods400 {
     }
 
 
-
-    private def getApiInfoJSON(apiVersion : ApiVersion, apiVersionStatus : String) = {
-      val organisation = APIUtil.getPropsValue("hosted_by.organisation", "TESOBE")
-      val email = APIUtil.getPropsValue("hosted_by.email", "contact@tesobe.com")
-      val phone = APIUtil.getPropsValue("hosted_by.phone", "+49 (0)30 8145 3994")
-      val organisationWebsite = APIUtil.getPropsValue("organisation_website", "https://www.tesobe.com")
-      val hostedBy = new HostedBy400(organisation, email, phone, organisationWebsite)
-
-      val organisationHostedAt = APIUtil.getPropsValue("hosted_at.organisation", "")
-      val organisationWebsiteHostedAt = APIUtil.getPropsValue("hosted_at.organisation_website", "")
-      val hostedAt = new HostedAt400(organisationHostedAt, organisationWebsiteHostedAt)
-
-      val organisationEnergySource = APIUtil.getPropsValue("energy_source.organisation", "")
-      val organisationWebsiteEnergySource = APIUtil.getPropsValue("energy_source.organisation_website", "")
-      val energySource = new EnergySource400(organisationEnergySource, organisationWebsiteEnergySource)
-
-      val connector = APIUtil.getPropsValue("connector").openOrThrowException("no connector set")
-      val resourceDocsRequiresRole = APIUtil.getPropsAsBoolValue("resource_docs_requires_role", false)
-
-      APIInfoJson400(
-        apiVersion.vDottedApiVersion, 
-        apiVersionStatus, 
-        gitCommit, 
-        connector,
-        Constant.HostName,
-        Constant.localIdentityProvider, 
-        hostedBy, 
-        hostedAt, 
-        energySource, 
-        resourceDocsRequiresRole
-      )
-    }
+    
 
 
     staticResourceDocs += ResourceDoc(
-      root(OBPAPI4_0_0.version, OBPAPI4_0_0.versionStatus),
+      root,
       implementedInApiVersion,
       "root",
       "GET",
@@ -2701,14 +2669,14 @@ trait APIMethods400 {
       List(UnknownError, "no connector set"),
       apiTagApi  :: Nil)
 
-    def root (apiVersion : ApiVersion, apiVersionStatus: String): OBPEndpoint = {
+    lazy val root: OBPEndpoint = {
       case (Nil | "root" :: Nil) JsonGet _ => {
         cc => 
           implicit val ec = EndpointContext(Some(cc))
           for {
             _ <- Future() // Just start async call
           } yield {
-            (getApiInfoJSON(apiVersion,apiVersionStatus), HttpCode.`200`(cc.callContext))
+            (JSONFactory400.getApiInfoJSON(OBPAPI4_0_0.version,OBPAPI4_0_0.versionStatus), HttpCode.`200`(cc.callContext))
           }
       }
     }
@@ -11762,8 +11730,8 @@ trait APIMethods400 {
     lazy val getAtms : OBPEndpoint = {
       case "banks" :: BankId(bankId) :: "atms" :: Nil JsonGet _ => {
         cc => implicit val ec = EndpointContext(Some(cc))
-          val limit = S.param("limit")
-          val offset = S.param("offset")
+          val limit = ObpS.param("limit")
+          val offset = ObpS.param("offset")
           for {
             (_, callContext) <- getAtmsIsPublic match {
               case false => authenticatedAccess(cc)

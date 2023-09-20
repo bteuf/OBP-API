@@ -71,6 +71,8 @@ import code.api.dynamic.entity.helper.{DynamicEntityHelper, DynamicEntityInfo}
 import code.atmattribute.AtmAttribute
 import code.bankattribute.BankAttribute
 import code.connectormethod.{ConnectorMethodProvider, JsonConnectorMethod}
+import code.crm.CrmEvent
+import code.crm.CrmEvent.CrmEvent
 import code.customeraccountlinks.CustomerAccountLinkTrait
 import code.dynamicMessageDoc.{DynamicMessageDocProvider, JsonDynamicMessageDoc}
 import code.dynamicResourceDoc.{DynamicResourceDocProvider, JsonDynamicResourceDoc}
@@ -117,6 +119,15 @@ object NewStyle extends MdcLoggable{
 
     import com.openbankproject.commons.ExecutionContext.Implicits.global
 
+
+    def getCrmEvents(bankId : BankId, callContext: Option[CallContext]): Future[List[CrmEvent]] = {
+      Future {
+        CrmEvent.crmEventProvider.vend.getCrmEvents(bankId)
+      } map {
+        unboxFullOrFail(_, callContext, "No CRM Events available.", 404)
+      }
+    }
+
     private def validateBankId(bankId: Option[String], callContext: Option[CallContext]): Unit = {
       bankId.foreach(validateBankId(_, callContext))
     }
@@ -133,6 +144,14 @@ object NewStyle extends MdcLoggable{
       Connector.connector.vend.getBranch(bankId, branchId, callContext) map {
         x => fullBoxOrException(x ~> APIFailureNewStyle(BranchNotFoundByBranchId, 400, callContext.map(_.toLight)))
       } map { unboxFull(_) }
+    }
+    
+    def createOrUpdateBranch(branch: BranchT, callContext: Option[CallContext]): Future[BranchT] = {
+      Future {
+        Connector.connector.vend.createOrUpdateBranch(branch)
+      } map {
+        unboxFullOrFail(_, callContext, ErrorMessages.CountNotSaveOrUpdateResource + " Branch", 400)
+      }
     }
 
     /**
@@ -675,6 +694,21 @@ object NewStyle extends MdcLoggable{
       }
     }
 
+    def updateConsumer(id: Long, 
+                       key: Option[String], 
+                       secret: Option[String], 
+                       isActive: Option[Boolean], 
+                       name: Option[String], 
+                       appType: Option[AppType], 
+                       description: Option[String], 
+                       developerEmail: Option[String], 
+                       redirectURL: Option[String], 
+                       createdByUserId: Option[String], 
+                       callContext: Option[CallContext]): Future[Consumer] = {
+      Future(Consumers.consumers.vend.updateConsumer(id, key, secret, isActive, name, appType, description, developerEmail, redirectURL, createdByUserId)) map {
+        unboxFullOrFail(_, callContext, UpdateConsumerError, 404)
+      }
+    }
     def getConsumerByPrimaryId(id: Long, callContext: Option[CallContext]): Future[Consumer] = {
       Consumers.consumers.vend.getConsumerByPrimaryIdFuture(id) map {
         unboxFullOrFail(_, callContext, ConsumerNotFoundByConsumerId, 404)
@@ -2220,6 +2254,20 @@ object NewStyle extends MdcLoggable{
           }
       } map {
         unboxFullOrFail(_, callContext, FXCurrencyCodeCombinationsNotSupported)
+      }
+    
+    def createOrUpdateFXRate(bankId: String,
+                             fromCurrencyCode: String,
+                             toCurrencyCode: String,
+                             conversionValue: Double,
+                             inverseConversionValue: Double,
+                             effectiveDate: Date,
+                             callContext: Option[CallContext]
+                            ): Future[FXRate] =
+      Future(
+        Connector.connector.vend.createOrUpdateFXRate(bankId, fromCurrencyCode, toCurrencyCode, conversionValue, inverseConversionValue, effectiveDate)
+      ) map {
+        unboxFullOrFail(_, callContext, createFxCurrencyIssue)
       }
     
     def createMeeting(

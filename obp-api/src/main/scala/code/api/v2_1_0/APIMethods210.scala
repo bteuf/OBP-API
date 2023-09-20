@@ -9,6 +9,7 @@ import code.api.util.ErrorMessages.TransactionDisabled
 import code.api.util.FutureUtil.EndpointContext
 import code.api.util.NewStyle.HttpCode
 import code.api.util.{APIUtil, ApiRole, ErrorMessages, NewStyle}
+import code.api.v1_2_1.JSONFactory
 import code.api.v1_3_0.{JSONFactory1_3_0, _}
 import code.api.v1_4_0.JSONFactory1_4_0
 import code.api.v1_4_0.JSONFactory1_4_0._
@@ -75,6 +76,36 @@ trait APIMethods210 {
     val codeContext = CodeContext(resourceDocs, apiRelations)
 
 
+    resourceDocs += ResourceDoc(
+      root,
+      apiVersion,
+      "root",
+      "GET",
+      "/root",
+      "Get API Info (root)",
+      """Returns information about:
+        |
+        |* API version
+        |* Hosted by information
+        |* Git Commit""",
+      emptyObjectJson,
+      apiInfoJSON,
+      List(UnknownError, "no connector set"),
+      apiTagApi :: Nil)
+
+    lazy val root : OBPEndpoint = {
+      case (Nil | "root" :: Nil) JsonGet _ => {
+        cc =>
+          implicit val ec = EndpointContext(Some(cc))
+          for {
+            _ <- Future() // Just start async call
+          } yield {
+            (JSONFactory.getApiInfoJSON(OBPAPI2_1_0.version, OBPAPI2_1_0.versionStatus), HttpCode.`200`(cc.callContext))
+          }
+      }
+    }
+    
+    
     // TODO Add example body below
 
     resourceDocs += ResourceDoc(
@@ -1575,28 +1606,36 @@ trait APIMethods210 {
         UserHasMissingRoles,
         UnknownError
       ),
-      List(apiTagConsumer, apiTagOldStyle),
+      List(apiTagConsumer),
       Some(List(canUpdateConsumerRedirectUrl))
     )
     
     lazy val updateConsumerRedirectUrl: OBPEndpoint = {
       case "management" :: "consumers" :: consumerId :: "consumer" :: "redirect_url" :: Nil JsonPut json -> _ => {
         cc =>
+          implicit val ec = EndpointContext(Some(cc))
           for {
-            u <- cc.user ?~ UserNotLoggedIn
-            _ <- if(APIUtil.getPropsAsBoolValue("consumers_enabled_by_default", false)) Full(Unit)
-                  else NewStyle.function.ownEntitlement("", u.userId, ApiRole.canUpdateConsumerRedirectUrl, cc.callContext)
-
-              postJson <- tryo {json.extract[ConsumerRedirectUrlJSON]} ?~! InvalidJsonFormat
-            consumerIdToLong <- tryo{consumerId.toLong} ?~! InvalidConsumerId 
-            consumer <- Consumers.consumers.vend.getConsumerByPrimaryId(consumerIdToLong) ?~! {ConsumerNotFoundByConsumerId}
+            (Full(u), callContext) <- authenticatedAccess(cc)
+            _ <- APIUtil.getPropsAsBoolValue("consumers_enabled_by_default", false) match {
+              case true => Future(Full(Unit))
+              case false => NewStyle.function.hasEntitlement("", u.userId, ApiRole.canUpdateConsumerRedirectUrl, callContext)
+            }
+            postJson <- NewStyle.function.tryons(InvalidJsonFormat, 400, callContext) {
+              json.extract[ConsumerRedirectUrlJSON]
+            }
+            consumerIdToLong <- NewStyle.function.tryons(InvalidConsumerId, 400, callContext) {
+              consumerId.toLong
+            }
+            consumer <- NewStyle.function.getConsumerByPrimaryId(consumerIdToLong, callContext) 
             //only the developer that created the Consumer should be able to edit it
-            _ <- tryo(assert(consumer.createdByUserId.equals(cc.user.openOrThrowException(attemptedToOpenAnEmptyBox).userId)))?~! UserNoPermissionUpdateConsumer
+            _ <- Helper.booleanToFuture(UserNoPermissionUpdateConsumer, 400, callContext) {
+              consumer.createdByUserId.equals(u.userId)
+            }
             //update the redirectURL and isactive (set to false when change redirectUrl) field in consumer table
-            updatedConsumer <- Consumers.consumers.vend.updateConsumer(consumer.id.get, None, None, Some(APIUtil.getPropsAsBoolValue("consumers_enabled_by_default", false)), None, None, None, None, Some(postJson.redirect_url), None) ?~! UpdateConsumerError
+            updatedConsumer <- NewStyle.function.updateConsumer(consumer.id.get, None, None, Some(APIUtil.getPropsAsBoolValue("consumers_enabled_by_default", false)), None, None, None, None, Some(postJson.redirect_url), None, callContext)
           } yield {
             val json = JSONFactory210.createConsumerJSON(updatedConsumer)
-            createdJsonResponse(Extraction.decompose(json))
+            (json, HttpCode.`200`(callContext))
           }
       }
     }
