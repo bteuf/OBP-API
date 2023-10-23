@@ -2,7 +2,7 @@ package code.api.util
 
 import java.io.File
 
-import code.api.Constant.PARAM_LOCALE
+import code.api.Constant.{PARAM_LOCALE, directLoginHeaderName}
 import code.api.util.APIUtil.{getObpApiRoot, getServerUrl}
 import code.api.util.ExampleValue.{accountIdExample, bankIdExample, customerIdExample, userIdExample}
 import code.util.Helper.MdcLoggable
@@ -17,7 +17,7 @@ object Glossary extends MdcLoggable  {
 
 	def getGlossaryItem(title: String): String = {
 
-		logger.debug(s"getGlossaryItem says Hello. title to find is: $title")
+		//logger.debug(s"getGlossaryItem says Hello. title to find is: $title")
 
 		val something = glossaryItems.find(_.title.toLowerCase == title.toLowerCase) match {
 			case Some(foundItem) =>
@@ -32,13 +32,32 @@ object Glossary extends MdcLoggable  {
 				 |  
 				 |  ${foundItem.htmlDescription}
 				 |</details>
+				 |
 				 |<br></br>
 				 |""".stripMargin
-				case None => ""
+				case None => "glossary-item-not-found"
 		}
-		logger.debug(s"getGlossaryItem says the text to return is $something")
+		//logger.debug(s"getGlossaryItem says the text to return is $something")
 		something
 	}
+
+	def getGlossaryItemSimple(title: String): String = {
+    // This function just returns a string without Title and collapsable element.
+		// Can use this if getGlossaryItem is problematic with a certain glossary item (e.g. JSON Schema Validation Glossary Item) or just want a simple inclusion of text.
+
+		//logger.debug(s"getGlossaryItemSimple says Hello. title to find is: $title")
+
+		val something = glossaryItems.find(_.title.toLowerCase == title.toLowerCase) match {
+			case Some(foundItem) =>
+				s"""
+				 |  ${foundItem.htmlDescription}
+				 |""".stripMargin
+			case None => "glossary-item-simple-not-found"
+		}
+		//logger.debug(s"getGlossaryItemSimple says the text to return is $something")
+		something
+	}
+
 
 	// reason of description is function: because we want make description is dynamic, so description can read
 	// webui_ props dynamic instead of a constant string.
@@ -1030,22 +1049,23 @@ object Glossary extends MdcLoggable  {
 			|	Content-Type:  application/json
 			|
 			|
-			|    DirectLogin: username=janeburel,
+			|    directlogin: username=janeburel,
 			|                 password=the-password-of-jane,
 			|                 consumer_key=your-consumer-key-from-step-one
 			|
 			|Here is it all together:
 			|
 			|	POST $getServerUrl/my/logins/direct HTTP/1.1
-			|	DirectLogin: username=janeburel, password=686876, consumer_key=GET-YOUR-OWN-API-KEY-FROM-THE-OBP
+			|	$directLoginHeaderName: username=janeburel, password=686876, consumer_key=GET-YOUR-OWN-API-KEY-FROM-THE-OBP
 			|	Content-Type: application/json
 			|	Host: 127.0.0.1:8080
 			|	Connection: close
 			|	User-Agent: Paw/2.3.3 (Macintosh; OS X/10.11.3) GCDHTTPRequest
 			|	Content-Length: 0
 			|
+			|Note: HTTP/2.0 requires that header names are *lower* case. Currently the header name for $directLoginHeaderName is case insensitive.
 			|
-			|
+      |To troubleshoot request headers, you may want to ask your administrator to Echo Request headers.
 			|
 			|You should receive a token:
 			|
@@ -1070,12 +1090,12 @@ object Glossary extends MdcLoggable  {
 			|
 			|	Content-Type:  application/json
 			|
-			|	DirectLogin: token=your-token-from-step-2
+			|	$directLoginHeaderName: token=your-token-from-step-2
 			|
 			|Here is another example:
 			|
 			|	PUT $getObpApiRoot/v2.0.0/banks/enbd-egy--p3/accounts/newaccount1 HTTP/1.1
-			|	DirectLogin: token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyIiOiIifQ.C8hJZNPDI59OOu78pYs4BWp0YY_21C6r4A9VbgfZLMA
+			|	$directLoginHeaderName: token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyIiOiIifQ.C8hJZNPDI59OOu78pYs4BWp0YY_21C6r4A9VbgfZLMA
 			|	Content-Type: application/json
 			|	Cookie: JSESSIONID=7h1ssu6d7j151u08p37a6tsx1
 			|	Host: 127.0.0.1:8080
@@ -1105,6 +1125,26 @@ object Glossary extends MdcLoggable  {
 			|  Each parameter MUST NOT appear more than once per request.
 			|
 		  """)
+
+
+	glossaryItems += GlossaryItem(
+		title = "Echo Request Headers",
+		description =
+			s"""
+			 |Question: How can I see the request headers that OBP API finally receives from a REST client after the request has passed through HTTP infrastructure such as load balancers, firewalls and proxies?
+|
+|Answer: If your OBP administrator (you?) sets the following OBP API Props:
+|
+|```echo_request_headers=true```
+|
+|then OBP API will echo all the request headers it receives to the response headers except that every request header name is prefixed with echo_
+|
+|e.g. if you send the request header:value "DirectLogin:hello" it will be echoed in the response headers as "echo_DirectLogin:hello"
+|
+|Note: HTTP/2.0 requires that header names must be *lower* case. This can be a source of confusion as some libraries / tools may drop or convert header names to lowercase.
+			 |
+		  """)
+
 
 	  glossaryItems += GlossaryItem(
 		title = "Scenario 1: Onboarding a User",
@@ -1144,7 +1184,7 @@ object Glossary extends MdcLoggable  {
 			|
 			|	Content-Type:  application/json
 			|
-			|	Authorization: DirectLogin token="your-token-from-direct-login"
+			|	Authorization: $directLoginHeaderName token="your-token-from-direct-login"
 			|
 			|### 3) List customers for the user
 			|
@@ -1574,7 +1614,7 @@ object Glossary extends MdcLoggable  {
 			|
 			|	Content-Type:  application/json
 			|
-			|	DirectLogin: token="your-token-from-direct-login"
+			|	$directLoginHeaderName: token="your-token-from-direct-login"
 			| 
 			| When customer get the the challenge answer from SMS, then need to call `Answer Auth Context Update Challenge` to varify the challenge. 
 			| Then the customer create the 1st `User Auth Context` successfully.
@@ -1592,7 +1632,7 @@ object Glossary extends MdcLoggable  {
 			|
 			|	Content-Type:  application/json
 			|
-			|	DirectLogin: token="your-token-from-direct-login"
+			|	$directLoginHeaderName: token="your-token-from-direct-login"
 			|
 |### 3) Create a second User Auth Context record e.g. SMALL_PAYMENT_VERIFIED
 |
@@ -1610,7 +1650,7 @@ object Glossary extends MdcLoggable  {
 |
 |	Content-Type:  application/json
 |
-|	DirectLogin: token="your-token-from-direct-login"
+|	$directLoginHeaderName: token="your-token-from-direct-login"
 |
 |
 |
@@ -1631,7 +1671,7 @@ object Glossary extends MdcLoggable  {
 |
 |	Content-Type:  application/json
 |
-|	DirectLogin: token="your-token-from-direct-login"
+|	$directLoginHeaderName: token="your-token-from-direct-login"
 | 
 | Note! The above logic must be encoded in a dynamic connector method for the OBP internal function validateUserAuthContextUpdateRequest which is used by the endpoint Create User Auth Context Update Request See the next step.
 |
@@ -1651,7 +1691,7 @@ object Glossary extends MdcLoggable  {
 |
 |	Content-Type:  application/json
 |
-|	DirectLogin: token="your-token-from-direct-login"
+|	$directLoginHeaderName: token="your-token-from-direct-login"
 |
 |### 5) Allow automated access to the App with Create Consent (SMS)
 |
@@ -1674,7 +1714,7 @@ object Glossary extends MdcLoggable  {
 |
 |	Content-Type:  application/json
 |
-|	DirectLogin: token="your-token-from-direct-login"
+|	$directLoginHeaderName: token="your-token-from-direct-login"
 |
 |![OBP User Auth Context, Views, Consents 2022](https://user-images.githubusercontent.com/485218/165982767-f656c965-089b-46de-a5e6-9f05b14db182.png)
 |
@@ -3031,21 +3071,23 @@ object Glossary extends MdcLoggable  {
 		title = "JSON Schema Validation",
 		description =
 			s"""
+   |
    |JSON Schema is "a vocabulary that allows you to annotate and validate JSON documents".
    |
-   |By applying JSON Schema Validation to your endpoints you can constrain POST and PUT request bodies. For example, you can set minimum / maximum lengths of fields and constrain values to certain lists or regular expressions.
+   |By applying JSON Schema Validation to your OBP endpoints you can constrain POST and PUT request bodies. For example, you can set minimum / maximum lengths of fields and constrain values to certain lists or regular expressions.
 	 |
-	 |See [JSONSchema.org](https://json-schema.org/) for more information about the standard.
+	 |See [JSONSchema.org](https://json-schema.org/) for more information about the JSON Schema standard.
+|
+|To create a JSON Schema from an any JSON Request body you can use [JSON Schema Net](https://jsonschema.net/app/schemas/0)
+|
+|(The video link below shows how to use that)
    |
-   |Note that Dynamic Entities also use JSON Schema Validation so you don't need to additionally wrap the resulting endpoints with extra JSON Schema Validation but you could do.
+   |Note: OBP Dynamic Entities also use JSON Schema Validation so you don't need to additionally wrap the resulting endpoints with extra JSON Schema Validation but you could do.
    |
-
+   | You can apply JSON schema validations to any OBP endpoint's request body using the POST and PUT endpoints listed in the link below.
    |
-   |  We provide the schema validations over the endpoints.
-   | All the OBP endpoints request/response body fields can be validated by the schema.
+   |PLEASE SEE the following video explanation: [JSON schema validation of request for Static and Dynamic Endpoints and Entities](https://vimeo.com/485287014)
    |
-   |The following videos are available:
-   |* [JSON schema validation of request for Static and Dynamic Endpoints and Entities] (https://vimeo.com/485287014)
    |""".stripMargin)
 
 

@@ -316,10 +316,11 @@
       <artifactId>scalameta_${scala.version}</artifactId>
       <version>3.7.4</version>
     </dependency>
+    <!-- https://mvnrepository.com/artifact/com.github.codemonstur/embedded-redis -->
     <dependency>
-      <groupId>ai.grakn</groupId>
-      <artifactId>redis-mock</artifactId>
-      <version>0.1.6</version>
+      <groupId>com.github.codemonstur</groupId>
+      <artifactId>embedded-redis</artifactId>
+      <version>1.0.0</version>
     </dependency>
 
     <!-- https://mvnrepository.com/artifact/com.nimbusds/oauth2-oidc-sdk -->
@@ -341,6 +342,11 @@
       <groupId>com.vladsch.flexmark</groupId>
       <artifactId>flexmark-util-options</artifactId>
       <version>0.64.0</version>
+    </dependency>
+    <dependency>
+      <groupId>com.zaxxer</groupId>
+      <artifactId>HikariCP</artifactId>
+      <version>4.0.3</version>
     </dependency>
     <!-- ********** flexmark END ********** -->
     <!--scala utils, for type scan-->
@@ -454,7 +460,7 @@
     <dependency>
       <groupId>org.iban4j</groupId>
       <artifactId>iban4j</artifactId>
-      <version>3.2.3-RELEASE</version>
+      <version>3.2.7-RELEASE</version>
     </dependency>
 
     <!--macro cache-->

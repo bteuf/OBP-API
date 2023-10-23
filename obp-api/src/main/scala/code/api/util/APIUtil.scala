@@ -27,6 +27,7 @@ TESOBE (http://www.tesobe.com/)
 
 package code.api.util
 
+import bootstrap.liftweb.CustomDBVendor
 import java.io.InputStream
 import java.net.URLDecoder
 import java.nio.charset.Charset
@@ -169,6 +170,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     oneYearAgo.add(Calendar.YEAR, -1)
     oneYearAgo.getTime()
   }
+  def ToDateInFuture = new Date(2100, 0, 1) //Sat Jan 01 00:00:00 CET 4000
   def DefaultToDate = new Date()
   def oneYearAgoDate = oneYearAgo(DefaultToDate)
   val theEpochTime: Date = new Date(0) // Set epoch time. The Unix epoch is 00:00:00 UTC on 1 January 1970.
@@ -195,7 +197,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
 
   def hasDirectLoginHeader(authorization: Box[String]): Boolean = hasHeader("DirectLogin", authorization)
   
-  def has2021DirectLoginHeader(requestHeaders: List[HTTPParam]): Boolean = requestHeaders.find(_.name == "DirectLogin").isDefined
+  def has2021DirectLoginHeader(requestHeaders: List[HTTPParam]): Boolean = requestHeaders.find(_.name.toLowerCase == "DirectLogin".toLowerCase()).isDefined
   
   def hasAuthorizationHeader(requestHeaders: List[HTTPParam]): Boolean = requestHeaders.find(_.name == "Authorization").isDefined
 
@@ -349,7 +351,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           }
         }
       case _ =>
-        logger.error("SessionContext is not defined. Metrics cannot be saved.")
+        logger.error("CallContextLight is not defined. Metrics cannot be saved.")
     }
   }
 
@@ -597,7 +599,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       getGatewayLoginHeader(cc).list ::: 
         getRateLimitHeadersNewStyle(cc).list ::: 
         getPaginationHeadersNewStyle(cc).list ::: 
-        getRequestHeadersToMirror(cc).list
+        getRequestHeadersToMirror(cc).list :::
+        getRequestHeadersToEcho(cc).list
     )
   }
 
@@ -675,6 +678,19 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
             CustomResponseHeaders(headers)
         }
       case None =>
+        CustomResponseHeaders(Nil)
+    }
+  }
+  /**
+   *
+   */
+  def getRequestHeadersToEcho(callContext: Option[CallContextLight]): CustomResponseHeaders = {
+    val echoRequestHeaders: Boolean =
+      getPropsAsBoolValue("echo_request_headers", defaultValue = false)
+    (callContext, echoRequestHeaders) match {
+      case (Some(cc), true) =>
+        CustomResponseHeaders(cc.requestHeaders.map(item => (s"echo_${item.name}", item.values.head)))
+      case _ =>
         CustomResponseHeaders(Nil)
     }
   }
@@ -1119,7 +1135,7 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case (_, Full(right)) =>
         parseObpStandardDate(right.head)
       case _ => {
-        Full(APIUtil.DefaultToDate)
+        Full(APIUtil.ToDateInFuture)
       }
     }
 
@@ -3022,6 +3038,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val url = URLDecoder.decode(ObpS.uriAndQueryString.getOrElse(""),"UTF-8")
     val correlationId = getCorrelationId()
     val reqHeaders = S.request.openOrThrowException(attemptedToOpenAnEmptyBox).request.headers
+    val title = s"Request Headers for verb: $verb, URL: $url"
+    surroundDebugMessage(reqHeaders.map(h => h.name + ": " + h.values.mkString(",")).mkString, title)
     val remoteIpAddress = getRemoteIpAddress()
     val res =
       if (APIUtil.`hasConsent-ID`(reqHeaders)) { // Berlin Group's Consent
@@ -4756,9 +4774,9 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val (serviceNameCounterLatest, serviceNameOpenFuturesCounterLatest) = serviceNameCountersMap.getOrDefault(serviceName,(0,0))
     
     if(serviceNameOpenFuturesCounterLatest>=expectedOpenFuturesPerService) {
-      logger.warn(s"incrementFutureCounter says: serviceName is $serviceName, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}, which is over expectedOpenFuturesPerService($expectedOpenFuturesPerService)")
+      logger.warn(s"WARNING! incrementFutureCounter says: serviceName is $serviceName, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}, which is over expectedOpenFuturesPerService($expectedOpenFuturesPerService)")
     }
-    logger.debug(s"incrementFutureCounter says: serviceName is $serviceName, serviceNameCounterLatest is ${serviceNameCounterLatest}, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}")
+    logger.debug(s"For your information: incrementFutureCounter says: serviceName is $serviceName, serviceNameCounterLatest is ${serviceNameCounterLatest}, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}")
   }
 
   def decrementFutureCounter(serviceName:String) = {
@@ -4767,5 +4785,32 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     val (serviceNameCounterLatest, serviceNameOpenFuturesCounterLatest) = serviceNameCountersMap.getOrDefault(serviceName, (0, 1))
     logger.debug(s"decrementFutureCounter says: serviceName is $serviceName, serviceNameCounterLatest is $serviceNameCounterLatest, serviceNameOpenFuturesCounterLatest is ${serviceNameOpenFuturesCounterLatest}")
   }
+
+  val driver =
+    Props.mode match {
+      case Props.RunModes.Production | Props.RunModes.Staging | Props.RunModes.Development => APIUtil.getPropsValue("db.driver") openOr "org.h2.Driver"
+      case Props.RunModes.Test => APIUtil.getPropsValue("db.driver") openOr "org.h2.Driver"
+      case _ => "org.h2.Driver"
+    }
+    
+  val vendor =
+    Props.mode match {
+      case Props.RunModes.Production | Props.RunModes.Staging | Props.RunModes.Development =>
+        new CustomDBVendor(driver,
+          APIUtil.getPropsValue("db.url") openOr h2DatabaseDefaultUrlValue,
+          APIUtil.getPropsValue("db.user"), APIUtil.getPropsValue("db.password"))
+      case Props.RunModes.Test =>
+        new CustomDBVendor(
+          driver,
+          APIUtil.getPropsValue("db.url") openOr Constant.h2DatabaseDefaultUrlValue,
+          APIUtil.getPropsValue("db.user").orElse(Empty),
+          APIUtil.getPropsValue("db.password").orElse(Empty)
+        )
+      case _ =>
+        new CustomDBVendor(
+          driver,
+          h2DatabaseDefaultUrlValue,
+          Empty, Empty)
+    }
     
 }

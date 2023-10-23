@@ -34,7 +34,6 @@ import code.customer._
 import code.customeraccountlinks.CustomerAccountLinkTrait
 import code.customeraddress.CustomerAddressX
 import code.customerattribute.CustomerAttributeX
-import code.database.authorisation.Authorisations
 import code.directdebit.DirectDebits
 import code.endpointTag.{EndpointTag, EndpointTagT}
 import code.fx.fx.TTL
@@ -153,21 +152,26 @@ object LocalMappedConnector extends Connector with MdcLoggable {
     import org.iban4j.InvalidCheckDigitException
     import org.iban4j.UnsupportedCountryException
 
-    // Validate Iban 
-    try { // 1st try
-      IbanUtil.validate(iban) // IBAN as String: "DE89370400440532013000"
-      (Full(IbanChecker(true, None)), callContext) // valid
-    } catch {
-      case error@(_: IbanFormatException | _: InvalidCheckDigitException | _: UnsupportedCountryException) =>
-      // invalid
-        try { // 2nd try
-          IbanUtil.validate(iban, IbanFormat.Default) // IBAN as formatted String: "DE89 3704 0044 0532 0130 00"
-          (Full(IbanChecker(true, None)), callContext) // valid
-        } catch {
-          case error@(_: IbanFormatException | _: InvalidCheckDigitException | _: UnsupportedCountryException) =>
-            (Full(IbanChecker(false, None)), callContext) // invalid
-        }
+    if(getPropsAsBoolValue("validate_iban", false)) {
+      // Validate Iban
+      try { // 1st try
+        IbanUtil.validate(iban) // IBAN as String: "DE89370400440532013000"
+        (Full(IbanChecker(true, None)), callContext) // valid
+      } catch {
+        case error@(_: IbanFormatException | _: InvalidCheckDigitException | _: UnsupportedCountryException) =>
+          // invalid
+          try { // 2nd try
+            IbanUtil.validate(iban, IbanFormat.Default) // IBAN as formatted String: "DE89 3704 0044 0532 0130 00"
+            (Full(IbanChecker(true, None)), callContext) // valid
+          } catch {
+            case error@(_: IbanFormatException | _: InvalidCheckDigitException | _: UnsupportedCountryException) =>
+              (Full(IbanChecker(false, None)), callContext) // invalid
+          }
+      }
+    } else {
+      (Full(IbanChecker(true, None)), callContext)
     }
+
   }
 
   // Gets current challenge level for transaction request
@@ -329,14 +333,16 @@ object LocalMappedConnector extends Connector with MdcLoggable {
       challengeId.toList
     }
 
-    Authorisations.authorisationProvider.vend.createAuthorization(
-      transactionRequestId.getOrElse(""),
-      consentId.getOrElse(""),
-      AuthenticationType.SMS_OTP.toString,
-      "",
-      ScaStatus.received.toString,
-      "12345" // TODO Implement SMS sending
-    )
+    //We use obp MappedExpectedChallengeAnswer instead of  Authorisations now.
+    // please also check Challenges.ChallengeProvider.vend.saveChallenge
+//    Authorisations.authorisationProvider.vend.createAuthorization(
+//      transactionRequestId.getOrElse(""),
+//      consentId.getOrElse(""),
+//      AuthenticationType.SMS_OTP.toString,
+//      "",
+//      ScaStatus.received.toString,
+//      "12345" // TODO Implement SMS sending
+//    )
     
     (Full(challenges.flatten), callContext)
   }
@@ -391,12 +397,25 @@ object LocalMappedConnector extends Connector with MdcLoggable {
             for {
               smsProviderApiKey <- APIUtil.getPropsValue("sca_phone_api_key") ?~! s"$MissingPropsValueAtThisInstance sca_phone_api_key"
               smsProviderApiSecret <- APIUtil.getPropsValue("sca_phone_api_secret") ?~! s"$MissingPropsValueAtThisInstance sca_phone_api_secret"
-              client = Twilio.init(smsProviderApiKey, smsProviderApiSecret)
+              scaPhoneApiId <- APIUtil.getPropsValue("sca_phone_api_id") ?~! s"$MissingPropsValueAtThisInstance sca_phone_api_id"
+              client = Twilio.init(smsProviderApiKey, smsProviderApiSecret) //TODO, move this to other place, we only need to init it once.
               phoneNumber = tuple._2
               messageText = s"Your consent challenge : ${challengeAnswer}";
-              message: Box[Message] = tryo(Message.creator(new PhoneNumber(phoneNumber), new PhoneNumber(phoneNumber), messageText).create())
-              failMsg = s"$SmsServerNotResponding: $phoneNumber. Or Please to use EMAIL first. ${message.map(_.getErrorMessage).getOrElse("")}"
-              _ <- Helper.booleanToBox(message.forall(_.getErrorMessage.isEmpty), failMsg)
+              message: Message <- tryo {Message.creator(
+                new PhoneNumber(phoneNumber), 
+                scaPhoneApiId, 
+                messageText).create()}
+              
+              isSuccess <- tryo {message.getErrorMessage == null}
+              
+              _ = logger.debug(s"createChallengeInternal.send message to $phoneNumber, detail is $message")
+              
+              failMsg = if (message.getErrorMessage ==null) 
+                  s"$SmsServerNotResponding: $phoneNumber. Or Please to use EMAIL first. ${message.getErrorMessage}"
+                else
+                  s"$SmsServerNotResponding: $phoneNumber. Or Please to use EMAIL first."
+                  
+              _ <- Helper.booleanToBox(isSuccess, failMsg)
             } yield true
         }
         val errorMessage = sendingResult.filter(_.isInstanceOf[Failure]).map(_.asInstanceOf[Failure].msg)
@@ -4851,12 +4870,12 @@ object LocalMappedConnector extends Connector with MdcLoggable {
   override def getStatus(challengeThresholdAmount: BigDecimal, transactionRequestCommonBodyAmount: BigDecimal, transactionRequestType: TransactionRequestType): Future[TransactionRequestStatus.Value] = {
     Future(
       if (transactionRequestCommonBodyAmount < challengeThresholdAmount && transactionRequestType.value != REFUND.toString) {
-        // For any connector != mapped we should probably assume that transaction_status_scheduler_delay will be > 0
+        // For any connector != mapped we should probably assume that transaction_request_status_scheduler_delay will be > 0
         // so that getTransactionRequestStatusesImpl needs to be implemented for all connectors except mapped.
-        // i.e. if we are certain that saveTransaction will be honored immediately by the backend, then transaction_status_scheduler_delay
+        // i.e. if we are certain that saveTransaction will be honored immediately by the backend, then transaction_request_status_scheduler_delay
         // can be empty in the props file. Otherwise, the status will be set to STATUS_PENDING
         // and getTransactionRequestStatusesImpl needs to be run periodically to update the transaction request status.
-        if (APIUtil.getPropsAsLongValue("transaction_status_scheduler_delay").isEmpty)
+        if (APIUtil.getPropsAsLongValue("transaction_request_status_scheduler_delay").isEmpty)
           TransactionRequestStatus.COMPLETED
         else
           TransactionRequestStatus.PENDING

@@ -23,6 +23,14 @@ connector=star
 #connector=proxy
 #connector=...
 
+#OBP uses Hikari as the default database connection pool. OBP supports the following 5 configurations at the moment.
+#https://github.com/brettwooldridge/HikariCP#frequently-used
+#hikari.connectionTimeout=
+#hikari.maximumPoolSize=
+#hikari.idleTimeout=
+#hikari.keepaliveTime=
+#hikari.maxLifetime=
+
 ## if connector = star, then need to set which connectors will be used. For now, obp support rest, akka, kafka. If you set kafka, then you need to start the kafka server.
 starConnector_supported_types=mapped,internal
 
@@ -120,8 +128,15 @@ long_endpoint_timeout = 55000
 #kafka.bootstrap_hosts=localhost:9092
 # WARNING: if this number does not match the partitions in Kafka config, you will SUFFER !
 #kafka.partitions=3
+
 #This is the api instance, we create kafka topic based on this number, each instance should have each own id. use it in load balancing + Kafka setup
+#This is also used for scheduler.
+#OBP set the default as the non-persistent UUID string.
+#api_instance_id=7uy8a7e4-6d02-40e3-a129-0b2bf89de8uh
+#If a value is set, OBP will concatenate the UUID string with the value.
 #api_instance_id=1
+#When the value is set to conclude with "final," OBP will preserve that value.
+#api_instance_id=1_final
 
 ## DEPRECATED
 ## Enable user authentication via kafka
@@ -181,10 +196,6 @@ write_connector_metrics=true
 # See the README for how to use the H2 browser / console.
 db.driver=org.h2.Driver
 db.url=jdbc:h2:./lift_proto.db;NON_KEYWORDS=VALUE;DB_CLOSE_ON_EXIT=FALSE
-
-#the default max database connection pool size is 30
-db.maxPoolSize=30
-
 
 #If you want to use the postgres , be sure to create your database and update the line below!
 #db.driver=org.postgresql.Driver
@@ -876,9 +887,10 @@ database_messages_scheduler_interval=3600
 # ---------------------------------------------------------
 
 # -- SCA (Strong Customer Authentication) -------
-# For now, OBP-API use `Twilio` server as the SMS provider. Please check `Twilio` website, and get the api key and value there.
-# sca_phone_api_key = oXAjqAJ6rvCunpzN
-# sca_phone_api_secret =oXAjqAJ6rvCunpzN123sdf
+# For now, OBP-API use `Twilio` server as the SMS provider. Please check `Twilio` website, and get the api key, value and phone number there.
+# sca_phone_api_key = ACobpb72ab850501b5obp8dobp9dobp111
+# sca_phone_api_secret =7afobpdacobpd427obpff87a22obp222
+# sca_phone_api_id =MGcobp8575119887f10b62a2461obpb333
 # 
 
 # -- PSD2 Certificates --------------------------
@@ -1030,6 +1042,9 @@ outboundAdapterCallContext.generalContext
 ## Mirror request headers to response
 # mirror_request_headers_to_response=x-fapi-interaction-id,x-jws-signature
 
+## Echo all request headers to response
+echo_request_headers=false
+
 ### enable or disable the feature of send "Force-Error" header, default value is false
 enable.force_error=false
 
@@ -1105,6 +1120,9 @@ default_auth_context_update_request_key=CUSTOMER_NUMBER
 # user_invitation.ttl.seconds=86400
 # User Invitation is mandatory in case of onboarding a user
 # user_invitation.mandatory=false
+# webui_user_invitation_notice_text=Thank you for expressing interest in the API Playground. At this time access to the \
+                                    API Playground is on an invitation basis only. Those invited will be invited to join \
+                                    by email, where you will be able to complete registration.
 
 # User (Developer) Invitation
 webui_post_user_invitation_submit_button_value=Register as a Developer
@@ -1248,3 +1266,6 @@ show_ip_address_change_warning=false
 
 #the default expected Open Futures Per Service for the BackOffFactor parameter
 expectedOpenFuturesPerService=100
+
+# Enable /Disable IBAN validation
+validate_iban=false

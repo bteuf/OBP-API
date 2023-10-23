@@ -22,7 +22,7 @@ import code.api.util.ApiTag._
 import code.api.util.DynamicUtil.Validation
 import code.api.util.ErrorMessages.{BankNotFound, _}
 import code.api.util.ExampleValue._
-import code.api.util.Glossary.getGlossaryItem
+import code.api.util.Glossary.{getGlossaryItem,getGlossaryItemSimple}
 import code.api.util.NewStyle.HttpCode
 import code.api.util.NewStyle.function.{isValidCurrencyISOCode => isValidCurrencyISOCodeNS, _}
 import code.api.util._
@@ -72,7 +72,7 @@ import code.transactionrequests.TransactionRequests.TransactionRequestTypes.{app
 import code.usercustomerlinks.UserCustomerLink
 import code.userlocks.UserLocksProvider
 import code.users.Users
-import code.util.Helper.{ObpS, booleanToFuture}
+import code.util.Helper.{ObpS, SILENCE_IS_GOLDEN, booleanToFuture}
 import code.util.{Helper, JsonSchemaUtil}
 import code.validation.JsonValidation
 import code.views.Views
@@ -151,7 +151,7 @@ trait APIMethods400 {
         cc =>
           implicit val ec = EndpointContext(Some(cc))
           Future {
-            (Migration.DbFunction.mapperDatabaseInfo(), HttpCode.`200`(cc.callContext))
+            (Migration.DbFunction.mapperDatabaseInfo(APIUtil.vendor), HttpCode.`200`(cc.callContext))
           }
       }
     }
@@ -4037,6 +4037,12 @@ trait APIMethods400 {
             }
             _ <- Helper.booleanToFuture(failMsg = ErrorMessages.InvalidConsumerCredentials, cc=cc.callContext) {
               cc.callContext.map(_.consumer.isDefined == true).isDefined
+            }
+
+            checkShortStringValue = APIUtil.checkShortString(bank.id)
+            
+            _ <- Helper.booleanToFuture(failMsg = s"$checkShortStringValue.", cc=cc.callContext) {
+              checkShortStringValue==SILENCE_IS_GOLDEN
             }
 
             _ <- Helper.booleanToFuture(failMsg = s"$InvalidJsonFormat Min length of BANK_ID should be greater than 3 characters.", cc=cc.callContext) {
@@ -9594,7 +9600,12 @@ trait APIMethods400 {
       "Create a JSON Schema Validation",
       s"""Create a JSON Schema Validation.
          |
-         |Please supply a json-schema as request body.
+         |Introduction:
+         |${Glossary.getGlossaryItemSimple("JSON Schema Validation")}
+         |
+         |To use this endpoint, please supply a valid json-schema in the request body.
+         |
+         |Note: It might take a few minutes for the newly created JSON Schema to take effect!
          |""",
       postOrPutJsonSchemaV400,
       responseJsonSchema,
@@ -9640,7 +9651,11 @@ trait APIMethods400 {
       "Update a JSON Schema Validation",
       s"""Update a JSON Schema Validation.
          |
-         |Please supply a json-schema as request body
+         |Introduction:
+         |${Glossary.getGlossaryItemSimple("JSON Schema Validation")}
+         |
+         |To use this endpoint, please supply a valid json-schema in the request body.
+         |
          |""",
       postOrPutJsonSchemaV400,
       responseJsonSchema,

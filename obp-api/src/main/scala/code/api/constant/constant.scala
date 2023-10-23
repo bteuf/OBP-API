@@ -8,6 +8,8 @@ import com.openbankproject.commons.util.ApiStandards
 // Note: Import this with: import code.api.Constant._
 object Constant extends MdcLoggable {
   logger.info("Instantiating Constants")
+
+  final val directLoginHeaderName = "directlogin"
   
   object Pagination {
     final val offset = 0
@@ -21,6 +23,20 @@ object Constant extends MdcLoggable {
   final val h2DatabaseDefaultUrlValue = "jdbc:h2:mem:OBPTest_H2_v2.1.214;NON_KEYWORDS=VALUE;DB_CLOSE_DELAY=10"
 
   final val HostName = APIUtil.getPropsValue("hostname").openOrThrowException(ErrorMessages.HostnameNotSpecified)
+  
+  final val ApiInstanceId = {
+    val apiInstanceIdFromProps = APIUtil.getPropsValue("api_instance_id")
+    if(apiInstanceIdFromProps.isDefined){
+      if(apiInstanceIdFromProps.head.endsWith("final")){
+        apiInstanceIdFromProps.head
+      }else{
+        s"${apiInstanceIdFromProps.head}_${APIUtil.generateUUID()}"
+      }    
+    }else{
+      APIUtil.generateUUID()
+    }
+  }
+  
   def localIdentityProvider = APIUtil.getPropsValue("local_identity_provider", HostName)
 
   // This is the part before the version. Do not change this default!
