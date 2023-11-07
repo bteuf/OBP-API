@@ -1,29 +1,27 @@
 package code.api.cache
 
-import code.api.util.APIUtil
-import net.liftweb.common.Full
+import code.api.util.RateLimitingUtil
+import code.util.Helper.MdcLoggable
+import com.softwaremill.macmemo.{Cache, MemoCacheBuilder, MemoizeParams}
 
 import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 import scala.language.postfixOps
-import com.softwaremill.macmemo.{Cache, MemoCacheBuilder, MemoizeParams}
-
 import scala.reflect.runtime.universe._
-object Caching {
+object Caching extends MdcLoggable {
 
   def memoizeSyncWithProvider[A](cacheKey: Option[String])(ttl: Duration)(f: => A)(implicit m: Manifest[A]): A = {
     (cacheKey, ttl) match {
       case (_, t) if t == Duration.Zero  => // Just forwarding a call
         f
+      case (Some(_), _) if !Redis.isRedisAvailable() => // Redis is NOT available. Warn via log file and forward the call
+        logger.warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        logger.warn("! Redis is NOT available at this instance !")
+        logger.warn("! Caching is skipped                      !")
+        logger.warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        f
       case (Some(_), _) => // Caching a call
-        APIUtil.getPropsValue("guava.cache") match {
-          case Full(value) if value.toLowerCase == "redis" =>
-            Redis.memoizeSyncWithRedis(cacheKey)(ttl)(f)
-          case Full(value) if value.toLowerCase == "in-memory" =>
-            InMemory.memoizeSyncWithInMemory(cacheKey)(ttl)(f)
-          case _ =>
-            InMemory.memoizeSyncWithInMemory(cacheKey)(ttl)(f)
-        }
+        Redis.memoizeSyncWithRedis(cacheKey)(ttl)(f)
       case _  => // Just forwarding a call
         f
     }
@@ -34,15 +32,14 @@ object Caching {
     (cacheKey, ttl) match {
       case (_, t) if t == Duration.Zero  => // Just forwarding a call
         f
+      case (Some(_), _) if !Redis.isRedisAvailable() => // Redis is NOT available. Warn via log file and forward the call
+        logger.warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        logger.warn("! Redis is NOT available at this instance !")
+        logger.warn("! Caching is skipped                      !")
+        logger.warn("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        f
       case (Some(_), _) => // Caching a call
-        APIUtil.getPropsValue("guava.cache") match {
-          case Full(value) if value.toLowerCase == "redis" =>
-            Redis.memoizeWithRedis(cacheKey)(ttl)(f)
-          case Full(value) if value.toLowerCase == "in-memory" =>
-            InMemory.memoizeWithInMemory(cacheKey)(ttl)(f)
-          case _ =>
-            InMemory.memoizeWithInMemory(cacheKey)(ttl)(f)
-        }
+        Redis.memoizeWithRedis(cacheKey)(ttl)(f)
       case _  => // Just forwarding a call
         f
     }

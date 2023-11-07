@@ -347,6 +347,9 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
               cc.verb,
               cc.httpCode,
               cc.correlationId,
+              cc.httpBody.getOrElse(""),
+              cc.requestHeaders.find(_.name.toLowerCase() == "x-forwarded-for").map(_.values.mkString(",")).getOrElse(""),
+              cc.requestHeaders.find(_.name.toLowerCase() == "x-forwarded-host").map(_.values.mkString(",")).getOrElse("")
             )
           }
         }
@@ -423,6 +426,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       val verb = S.request.openOrThrowException(attemptedToOpenAnEmptyBox).requestType.method
       val url = ObpS.uriAndQueryString.getOrElse("")
       val correlationId = getCorrelationId()
+      val body: Box[String] = getRequestBody(S.request)
+      val reqHeaders = S.request.openOrThrowException(attemptedToOpenAnEmptyBox).request.headers
 
       //execute saveMetric in future, as we do not need to know result of operation
       Future {
@@ -439,7 +444,10 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           implementedInVersion,
           verb,
           None,
-          correlationId
+          correlationId,
+          body.getOrElse(""),
+          reqHeaders.find(_.name.toLowerCase() == "x-forwarded-for").map(_.values.mkString(",")).getOrElse(""),
+          reqHeaders.find(_.name.toLowerCase() == "x-forwarded-host").map(_.values.mkString(",")).getOrElse("")
         )
       }
 
@@ -992,6 +1000,20 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       case regex(e) if(valueLength <= 16) => SILENCE_IS_GOLDEN
       case regex(e) if(valueLength > 16) => ErrorMessages.InvalidValueLength
       case _ => ErrorMessages.InvalidValueCharacters
+    }
+  }
+
+  
+  /** only  A-Z, a-z, 0-9, -, _, ., and max length <= 36  
+   * OBP APIUtil.generateUUID() length is 36 here.*/
+  def checkObpId(value:String): String ={
+    val valueLength = value.length
+    val regex = """^([A-Za-z0-9\-._]+)$""".r
+    value match {
+      case _ if value.isEmpty => SILENCE_IS_GOLDEN
+      case regex(e) if(valueLength <= 36) => SILENCE_IS_GOLDEN
+      case regex(e) if(valueLength > 36) => ErrorMessages.InvalidValueLength+" The maximum  OBP id length is 36. "
+      case _ => ErrorMessages.InvalidValueCharacters + " only  A-Z, a-z, 0-9, -, _, ., and max length <= 36 "
     }
   }
 
@@ -1717,10 +1739,12 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
     private var _isEndpointAuthCheck = false
 
     def isNotEndpointAuthCheck = !_isEndpointAuthCheck
-
+//    code.api.util.APIUtil.ResourceDoc.connectorMethods
     // set dependent connector methods
     var connectorMethods: List[String] = getDependentConnectorMethods(partialFunction)
-      .map("obp."+) // add prefix "obp.", as MessageDoc#process
+      .map(
+        value => ("obp."+value).intern() //
+      ) // add prefix "obp.", as MessageDoc#process
 
     // add connector method to endpoint info
     addEndpointInfos(connectorMethods, partialFunctionName, implementedInApiVersion)
@@ -1819,6 +1843,21 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
       def checkAuth(cc: CallContext): Future[(Box[User], Option[CallContext])] = {
         if (isNeedCheckAuth) authenticatedAccessFun(cc) else anonymousAccessFun(cc)
       }
+      
+      def checkObpIds(obpKeyValuePairs:  List[(String, String)], callContext: Option[CallContext]): Future[Option[CallContext]] = {
+        Future{
+          val allInvalidValueParis = obpKeyValuePairs
+            .filter(
+              keyValuePair => 
+                !checkObpId(keyValuePair._2).equals(SILENCE_IS_GOLDEN)
+            )
+          if(allInvalidValueParis.nonEmpty){
+            throw new RuntimeException(s"$InvalidJsonFormat Here are all invalid values: $allInvalidValueParis")
+          }else{
+            callContext
+          }
+        }
+      }
 
       def checkRoles(bankId: Option[BankId], user: Box[User], cc: Option[CallContext]):Future[Box[Unit]] = {
         if (isNeedCheckRoles) {
@@ -1915,6 +1954,11 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           val originFn: CallContext => Box[JsonResponse] = obpEndpoint.apply(req)
 
           val pathParams = getPathParams(req.path.partPath)
+                            
+          val allObpKeyValuePairs = if(req.request.method =="POST" &&req.json.isDefined) 
+            getAllObpIdKeyValuePairs(req.json.getOrElse(JString(""))) 
+          else Nil
+                          
           val bankId = pathParams.get("BANK_ID").map(BankId(_))
           val accountId = pathParams.get("ACCOUNT_ID").map(AccountId(_))
           val viewId = pathParams.get("VIEW_ID").map(ViewId(_))
@@ -1941,6 +1985,8 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
             // if authentication check, do authorizedAccess, else do Rate Limit check
             for {
               (boxUser, callContext) <- checkAuth(cc)
+              
+              _ <- checkObpIds(allObpKeyValuePairs, callContext) 
 
               // check bankId is valid
               (bank, callContext) <- checkBank(bankId, callContext)
@@ -4813,4 +4859,19 @@ object APIUtil extends MdcLoggable with CustomJsonFormats{
           Empty, Empty)
     }
     
+  def getAllObpIdKeyValuePairs(json: JValue): List[(String, String)] = {
+    //    all the OBP ids:
+    json
+      .filterField {
+        case JField(n, v) =>
+          (n == "id" || n == "user_id" || n == "bank_id" || n == "account_id" || n == "customer_id"
+            || n == "branch_id" || n == "atm_id" || n == "transaction_id" || n == "transaction_request_id"
+            || n == "card_id"|| n == "view_id")&&v.isInstanceOf[JString]}
+      .map(
+        jField => (jField.name, jField.value.asInstanceOf[JString].s)
+      )
+  }
+
+    val createLocalisedResourceDocJsonTTL : Int = APIUtil.getPropsValue(s"createLocalisedResourceDocJson.cache.ttl.seconds", "3600").toInt
+  
 }

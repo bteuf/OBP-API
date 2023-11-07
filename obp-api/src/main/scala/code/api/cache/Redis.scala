@@ -1,32 +1,53 @@
 package code.api.cache
 
-import code.api.util.APIUtil
+import code.api.util.{APIUtil, CustomJsonFormats}
 import code.util.Helper.MdcLoggable
-import scalacache._
-import scalacache.memoization.{cacheKeyExclude, memoize, memoizeSync}
-import scalacache.redis._
-import scalacache.serialization.Codec
-
 import com.openbankproject.commons.ExecutionContext.Implicits.global
+import redis.clients.jedis.Jedis
+import scalacache.memoization.{cacheKeyExclude, memoize, memoizeSync}
+import scalacache.{Flags, ScalaCache}
+import scalacache.redis.RedisCache
+import scalacache.serialization.Codec
+import net.liftweb.json
+import net.liftweb.json.{Extraction, Formats, parse}
+
 import scala.concurrent.Future
 import scala.concurrent.duration.Duration
 import scala.language.postfixOps
 
 object Redis extends MdcLoggable {
 
-  val url = APIUtil.getPropsValue("guava.redis.url", "127.0.0.1")
-  val port = APIUtil.getPropsAsIntValue("guava.redis.port", 6379)
+  val url = APIUtil.getPropsValue("cache.redis.url", "127.0.0.1")
+  val port = APIUtil.getPropsAsIntValue("cache.redis.port", 6379)
+
+  lazy val jedis = new Jedis(url, port)
+
+  def isRedisAvailable() = {
+    try {
+      val uuid = APIUtil.generateUUID()
+      jedis.connect()
+      jedis.set(uuid, "10")
+      jedis.exists(uuid) == true
+    } catch {
+      case e: Throwable =>
+        logger.warn("------------| Redis.isRedisAvailable |------------")
+        logger.warn(e)
+        false
+    }
+  }
 
   implicit val scalaCache = ScalaCache(RedisCache(url, port))
   implicit val flags = Flags(readsEnabled = true, writesEnabled = true)
+  implicit def formats: Formats = CustomJsonFormats.formats
 
   implicit def anyToByte[T](implicit m: Manifest[T]) = new Codec[T, Array[Byte]] {
 
     import com.twitter.chill.KryoInjection
-
     def serialize(value: T): Array[Byte] = {
+      val jsonString = json.compactRender(Extraction.decompose(value))
       logger.debug("KryoInjection started")
-      val bytes: Array[Byte] = KryoInjection(value)
+      logger.trace(s"redis.anyToByte.serialize value is $jsonString")
+      val bytes: Array[Byte] = KryoInjection(jsonString)
       logger.debug("KryoInjection finished")
       bytes
     }
@@ -35,9 +56,9 @@ object Redis extends MdcLoggable {
       import scala.util.{Failure, Success}
       val tryDecode: scala.util.Try[Any] = KryoInjection.invert(data)
       tryDecode match {
-        case Success(v) => v.asInstanceOf[T]
+        case Success(v) => json.parse(v.toString).extract[T]
         case Failure(e) =>
-          println(e)
+          logger.error(e)
           "NONE".asInstanceOf[T]
       }
     }

@@ -1242,15 +1242,9 @@ trait APIMethods310 {
           for {
             (_, callContext) <- anonymousAccess(cc)
             rateLimiting <- NewStyle.function.tryons("", 400, callContext) {
-              RateLimitingUtil.inMemoryMode match {
-                case true =>
-                  val isActive = if(RateLimitingUtil.useConsumerLimits == true) true else false
-                  RateLimiting(RateLimitingUtil.useConsumerLimits, "In-Memory", true, isActive)
-                case false =>
-                  val isRedisAvailable = RateLimitingUtil.isRedisAvailable()
-                  val isActive = if(RateLimitingUtil.useConsumerLimits == true && isRedisAvailable == true) true else false
-                  RateLimiting(RateLimitingUtil.useConsumerLimits, "REDIS", isRedisAvailable, isActive)
-              }
+              val isRedisAvailable = RateLimitingUtil.isRedisAvailable()
+              val isActive = if (RateLimitingUtil.useConsumerLimits && isRedisAvailable) true else false
+              RateLimiting(RateLimitingUtil.useConsumerLimits, "REDIS", isRedisAvailable, isActive)
             }
           } yield {
             (createRateLimitingInfo(rateLimiting), HttpCode.`200`(callContext))
@@ -3192,7 +3186,7 @@ trait APIMethods310 {
 
     lazy val getMessageDocsSwagger: OBPEndpoint = {
       case "message-docs" :: restConnectorVersion ::"swagger2.0" :: Nil JsonGet _ => {
-          val (resourceDocTags, partialFunctions, locale, contentParam, apiCollectionIdParam, cacheModifierParam) = ResourceDocsAPIMethodsUtil.getParams()
+          val (resourceDocTags, partialFunctions, locale, contentParam, apiCollectionIdParam) = ResourceDocsAPIMethodsUtil.getParams()
         cc => {
           implicit val ec = EndpointContext(Some(cc))
           for {
