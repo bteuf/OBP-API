@@ -11,6 +11,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        redis-version: [ 6, 7 ]
 
     steps:
       - uses: actions/checkout@v3
@@ -20,6 +23,11 @@ jobs:
           java-version: '11'
           distribution: 'adopt'
           cache: maven
+      - name: Start Redis
+        uses: supercharge/redis-github-action@1.7.0
+        with:
+          redis-version: ${{ matrix.redis-version }}
+
       - name: Build with Maven
         run: |
           cp obp-api/src/main/resources/props/sample.props.template obp-api/src/main/resources/props/production.default.props
