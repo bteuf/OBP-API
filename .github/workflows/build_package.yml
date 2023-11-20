@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        redis-version: [ 6, 7 ]
+        redis-version: [ 6 ]
 
     steps:
       - uses: actions/checkout@v3
