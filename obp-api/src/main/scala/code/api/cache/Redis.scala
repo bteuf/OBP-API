@@ -18,6 +18,8 @@ object Redis extends MdcLoggable {
 
   val url = APIUtil.getPropsValue("cache.redis.url", "127.0.0.1")
   val port = APIUtil.getPropsAsIntValue("cache.redis.port", 6379)
+  val username = APIUtil.getPropsValue("cache.redis.username", "")
+  val password = APIUtil.getPropsValue("cache.redis.password", "")
 
   final val poolConfig = new JedisPoolConfig()
   poolConfig.setMaxTotal(128)
@@ -32,7 +34,7 @@ object Redis extends MdcLoggable {
   poolConfig.setBlockWhenExhausted(true)
 
   def jedisPoolDestroy: Unit = jedisPool.destroy()
-  val jedisPool = new JedisPool(poolConfig,url, port, 4000)
+  val jedisPool = new JedisPool(poolConfig,url, port, 4000, username, password)
 
   /**
    * this is the help method, which can be used to auto close all the jedisConnection
@@ -91,7 +93,7 @@ object Redis extends MdcLoggable {
     } 
   }
 
-  implicit val scalaCache = ScalaCache(RedisCache(url, port))
+  implicit val scalaCache = ScalaCache(RedisCache(url, port, username,password))
   implicit val flags = Flags(readsEnabled = true, writesEnabled = true)
 
   implicit def anyToByte[T](implicit m: Manifest[T]) = new Codec[T, Array[Byte]] {
