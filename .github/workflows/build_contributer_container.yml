@@ -1,4 +1,4 @@
-name: Comment on the pull request
+name: Build and publish commiter container
 
 # read-write repo token
 # access to secrets
@@ -42,7 +42,7 @@ jobs:
       - name: prepare the artifact
         run: |
           mkdir -p obp-api/target/
-          cp pr/obp-api-1.*.war obp-api/target/obp-api-1.10.1.war
+          cp pr/obp-api-1.10.1.war obp-api/target/obp-api-1.10.1.war
 
       - name: Build the Docker image
         run: |
