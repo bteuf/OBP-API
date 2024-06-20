@@ -1,19 +1,17 @@
-name: Comment on the pull request
+name: build and publish commiter container
 
 # read-write repo token
 # access to secrets
 on:
   workflow_run:
-    workflows: ["Build on Pull Request"]
+    workflows:
+      - build_on_pull_request
     types:
-      - success
+      - completed
 
 jobs:
   upload:
     runs-on: ubuntu-latest
-    if: >
-      github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
     steps:
       - name: 'Download artifact'
         uses: actions/github-script@v3.1.0
