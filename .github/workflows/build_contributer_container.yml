@@ -1,14 +1,13 @@
-name: Comment on the pull request
+name: build and publish commiter container
 
 # read-write repo token
 # access to secrets
 on:
   workflow_run:
-    workflows: [Build on Pull Request]
-    branches:
-      - '**'
+    workflows:
+      - build_on_pull_request
     types:
-      - success
+      - completed
 
 jobs:
   upload:
