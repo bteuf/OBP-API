@@ -36,6 +36,7 @@ jobs:
           cache: maven
       - name: Build with Maven
         run: |
+          mkdir obp-api/target/
           touch obp-api/target/obp-api-1.1.10.war
       - name: Save user name and .war artifact
         run: |
