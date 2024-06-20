@@ -5,6 +5,8 @@ name: Comment on the pull request
 on:
   workflow_run:
     workflows: [Build on Pull Request]
+    branches:
+      - '**'
     types:
       - success
 
